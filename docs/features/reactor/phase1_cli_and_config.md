@@ -126,6 +126,16 @@ reactor/
 - Invalid provider: Show available providers (claude, gemini, custom)
 - Invalid image: For built-in providers, show valid images; for custom, validate image format
 
+**2.4.5. Test & Automation Isolation**
+To ensure that automated tests do not interfere with a user's local configuration or with other concurrent test runs, the tool will support an isolation mode via an environment variable.
+
+- **Environment Variable:** `REACTOR_ISOLATION_PREFIX`
+- **Behavior:** If this variable is set to a value (e.g., `test-run-123`), all file paths and resource names will be prefixed with this value.
+  - **Host Directory:** `~/.reactor/` becomes `~/.reactor-test-run-123/`
+  - **Config File:** `.reactor.conf` becomes `.reactor-test-run-123.conf`
+- **Default Behavior:** If the variable is not set or empty, the tool functions with its default paths and names.
+- **Implementation:** The Makefile is responsible for setting this environment variable correctly for all test targets. Phase 2 will extend this isolation to container names and other resources.
+
 #### **2.4.1. Data model updates**
 
 ```go
@@ -190,6 +200,30 @@ var BuiltinImages = map[string]string{
     "python": "ghcr.io/reactor-suite/python:latest", 
     "go":     "ghcr.io/reactor-suite/go:latest",
 }
+
+// GetConfigPath returns the project config file path with optional isolation prefix
+func GetConfigPath() string {
+    filename := ".reactor.conf"
+    if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
+        filename = "." + prefix + ".conf"
+    }
+    return filename
+}
+
+// GetReactorHomeDir returns the reactor home directory with optional isolation prefix  
+func GetReactorHomeDir() (string, error) {
+    homeDir, err := os.UserHomeDir()
+    if err != nil {
+        return "", err
+    }
+    
+    dirname := ".reactor"
+    if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
+        dirname = ".reactor-" + prefix
+    }
+    
+    return filepath.Join(homeDir, dirname), nil
+}
 ```
 
 #### **2.4.2. Data migration plan**
@@ -228,6 +262,7 @@ N/A - This is a CLI tool.
 * [ ] Implement project config loading from `.reactor.conf`
 * [ ] Add built-in provider mappings (claude, gemini) with hardcoded mount paths
 * [ ] Implement account directory resolution (default to system username)
+* [ ] Implement `REACTOR_ISOLATION_PREFIX` environment variable support for test isolation
 * [ ] Implement `reactor config` commands:
   * [ ] `show` - displays config + prints account directory locations
   * [ ] `set` - modifies project config, prints global config locations for reference
@@ -244,9 +279,10 @@ N/A - This is a CLI tool.
   * Test CLI flag parsing and validation
 
 * **Integration Tests:** 
-  * Test full command execution with temporary config directories
+  * Test full command execution with temporary config directories (using `REACTOR_ISOLATION_PREFIX`)
   * Verify configuration precedence works correctly across global/project/CLI layers
   * Test error handling for common user mistakes
+  * Test isolation prefix functionality ensures test runs don't interfere with user config
 
 * **End-to-End (E2E) User Story Tests:**
   * **User Story 1 ("As a Dev, I want to run `reactor config show`..."):** Test script creates project, runs `reactor config show`, verifies output format and content including sensible defaults

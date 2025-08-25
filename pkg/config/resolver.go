@@ -48,17 +48,26 @@ func GenerateProjectHash(projectRoot string) string {
 	return fmt.Sprintf("%x", hash[:4])
 }
 
-// GetReactorHomeDir returns the reactor configuration directory path
+// GetReactorHomeDir returns the reactor configuration directory path with optional isolation prefix
 func GetReactorHomeDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 	
-	return filepath.Join(homeDir, ".reactor"), nil
+	dirname := ".reactor"
+	if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
+		dirname = ".reactor-" + prefix
+	}
+	
+	return filepath.Join(homeDir, dirname), nil
 }
 
-// GetProjectConfigPath returns the path to the project configuration file
+// GetProjectConfigPath returns the path to the project configuration file with optional isolation prefix
 func GetProjectConfigPath() string {
-	return ".reactor.conf"
+	filename := ".reactor.conf"
+	if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
+		filename = "." + prefix + ".conf"
+	}
+	return filename
 }

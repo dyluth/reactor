@@ -17,7 +17,10 @@ GOARCH := $(shell go env GOARCH)
 BUILD_DIR := ./build
 CMD_DIR := ./cmd/reactor
 
-.PHONY: all build test lint clean install help deps
+# Test isolation settings
+TEST_PREFIX := test-$(shell date +%s)-$(shell echo $$RANDOM)
+
+.PHONY: all build test test-isolated test-coverage test-coverage-isolated lint clean install help deps
 
 # Default target
 all: build
@@ -33,9 +36,20 @@ build:
 test:
 	go test -v ./...
 
+## Run tests with isolation (recommended for CI/development)
+test-isolated:
+	@echo "Running tests with isolation prefix: $(TEST_PREFIX)"
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./...
+
 ## Run tests with coverage
 test-coverage:
 	go test -v -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+
+## Run tests with coverage and isolation (recommended for CI)
+test-coverage-isolated:
+	@echo "Running coverage tests with isolation prefix: $(TEST_PREFIX)"
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Run linting
