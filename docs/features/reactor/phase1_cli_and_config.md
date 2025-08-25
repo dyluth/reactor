@@ -27,7 +27,8 @@ Developers need a consistent way to configure AI providers and manage project-sp
 **User Stories:**
 
 * As a **Dev**, I want to run `reactor config show` to see my current configuration, so that I understand what provider and settings are active for my project.
-* As a **Dev**, I want to run `reactor config set provider claude` to switch providers, so that I can use different AI tools for different projects.
+* As a **Dev**, I want to permanently switch my project's default tool, so I can run `reactor config set provider claude`.
+* As a **Dev**, I want to configure my project and run it in a single command, so I can use a flag like `reactor run --provider gemini` to set the provider in my `.reactor.conf` and immediately launch the container.
 * As a **Dev**, I want to run `reactor run --image myimage` and get a clear "not implemented yet" message, so that I know the command structure is ready for future phases.
 * As an **Ops**, I want to run `reactor config show` to understand available providers and current configuration, so that I can standardize team configurations without complex setup.
 * As a **Dev**, I want clear error messages when configuration is missing or invalid, so that I can fix issues quickly.
@@ -86,6 +87,7 @@ The implementation consists of four main components:
 reactor/
 ├── run [--image IMAGE] [--account ACCOUNT] [--provider PROVIDER] [--danger]
 │   └── (validates config, prepares for container provisioning, returns "Container provisioning not implemented yet")
+│   └── Note: Flags like --provider, --account, and --image serve as temporary, single-command overrides for the settings in .reactor.conf.
 ├── diff [--discovery]
 │   └── (validates config, returns "Container diff not implemented yet")  
 ├── accounts
@@ -110,7 +112,7 @@ reactor/
 1. Load built-in provider mappings (claude->base, gemini->base, custom images)
 2. Check for project config at .reactor.conf
    - If missing: Error "No project configuration found. Run 'reactor config init' to create one."
-3. Apply CLI flag overrides (project-level only, including --danger and --image flags)
+3. Apply and persist CLI flag overrides. Any flags passed to 'run' (e.g., --provider, --image) will update the .reactor.conf file before the configuration is resolved.
 4. Resolve image: Use config.image, fallback to provider default, then CLI override
 5. Generate project hash from absolute project path (first 8 chars of SHA-256)
 6. Resolve directory structure: ~/.reactor/<account>/<project-hash>/<provider>/

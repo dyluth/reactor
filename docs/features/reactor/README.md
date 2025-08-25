@@ -89,7 +89,7 @@ The internal architecture is composed of several distinct, isolated components:
 **4. `session` (Terminal Interaction Layer)**
    - **Responsibility**: Manages the interactive TTY connection to the running container's process.
 
-**5. `agent` (In-Container Client)**
+**5. `entrypoint` (In-Container Client)**
    - **Responsibility**: A separate utility inside the container that acts as the entrypoint, deciding whether to connect to `Reactor-Fabric` or run the native AI tool.
 
 #### **2.4.1. Data model updates**
@@ -186,7 +186,7 @@ N/A. This is a CLI tool.
 **Phase 5: Auto-Installation & Enhanced UX**
 *   \[ \] PR 5.1: Implement automatic AI agent installation in containers that don't have the specified agent pre-installed.
 *   \[ \] PR 5.2: Add interactive configuration flow as alternative to `reactor config init`.
-*   \[ \] PR 5.3: Implement smart container image selection based on project type detection (optional enhancement).
+
 
 ### **3.2. Testing strategy**
 
@@ -227,15 +227,15 @@ Reactor provides three curated images with convenient short names:
 * **`base`**: Core development tools + AI agents (Claude, Gemini)
   * Tools: curl, git, ca-certificates, wget, unzip, gnupg2, socat, sudo, ripgrep, jq, fzf, nano, vim, less, procps, htop, build-essential, shellcheck, man-db, node, npm
   * AI Agents: Claude CLI, Gemini CLI pre-installed
-  * Image: `ghcr.io/reactor-suite/base:latest`
+  * Image: `ghcr.io/dyluth/claude-reactor-go`
 
 * **`python`**: Base image + Python development environment  
   * Additional: python3, python3-pip, uv, uvx and Python toolchain
-  * Image: `ghcr.io/reactor-suite/python:latest`
+  * Image: `ghcr.io/dyluth/claude-reactor-go`
 
 * **`go`**: Base image + Go development environment
   * Additional: Go toolchain with essential Go development tools
-  * Image: `ghcr.io/reactor-suite/go:latest`
+  * Image: `ghcr.io/dyluth/claude-reactor-go`
 
 **Custom Images:**
 Users can specify any Docker image. The image must:
