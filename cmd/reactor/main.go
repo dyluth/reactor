@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/anthropics/reactor/pkg/config"
+	"github.com/anthropics/reactor/pkg/core"
+	"github.com/anthropics/reactor/pkg/docker"
 	"github.com/spf13/cobra"
 )
 
@@ -205,7 +208,59 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Config Dir: %s\n", resolved.ProjectConfigDir)
 	}
 
-	return fmt.Errorf("Container provisioning not implemented yet")
+	// Initialize state service for directory validation
+	stateService := core.NewStateService(resolved)
+	
+	// Validate that required directories exist
+	if err := stateService.ValidateDirectories(); err != nil {
+		return fmt.Errorf("state validation failed: %w\nHint: Run 'reactor config init' to create required directories", err)
+	}
+
+	// Initialize Docker service
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+	
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	// Generate mount specifications and create container blueprint
+	mounts := stateService.GetMounts()
+	blueprint := core.NewContainerBlueprint(resolved, mounts)
+	containerSpec := blueprint.ToContainerSpec()
+
+	// Provision container using recovery strategy
+	containerInfo, err := dockerService.ProvisionContainer(ctx, containerSpec)
+	if err != nil {
+		return fmt.Errorf("failed to provision container: %w", err)
+	}
+
+	fmt.Printf("Container provisioned: %s\n", containerInfo.Name)
+	if verbose {
+		fmt.Printf("Container ID: %s\n", containerInfo.ID)
+		fmt.Printf("Status: %s\n", containerInfo.Status)
+	}
+
+	// Attach to interactive session
+	fmt.Printf("Attaching to container session...\n")
+	if err := dockerService.AttachInteractiveSession(ctx, containerInfo.ID); err != nil {
+		return fmt.Errorf("failed to attach to container session: %w", err)
+	}
+
+	// Inform user about container state after session ends
+	fmt.Printf("\nSession ended. Container '%s' is still running.\n", containerInfo.Name)
+	fmt.Printf("Use 'docker stop %s' to stop it.\n", containerInfo.Name)
+
+	return nil
 }
 
 func diffCmdHandler(cmd *cobra.Command, args []string) error {
