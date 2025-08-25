@@ -94,29 +94,52 @@ The internal architecture is composed of several distinct, isolated components:
 
 #### **2.4.1. Data model updates**
 
-Configuration will be managed via YAML files parsed into Go structs.
+Configuration uses a simple project-based YAML file with built-in provider mappings.
 
-**`~/.reactor/providers.yaml`:**
+**`<project-dir>/.reactor.conf`:**
+```yaml
+provider: claude    # claude, gemini, or custom
+account: default    # account name for configuration isolation
+image: python       # base, python, go, or custom image URL
+danger: false       # enable dangerous permissions (optional, defaults to false)
+```
+
+**Built-in provider mappings (in code):**
 ```go
-type ProviderConfig struct {
-    DefaultProvider string             `yaml:"default_provider"`
-    Providers       map[string]Provider `yaml:"providers"`
+type ProjectConfig struct {
+    Provider string `yaml:"provider"` // claude, gemini, or custom
+    Account  string `yaml:"account"`  // account name for isolation
+    Image    string `yaml:"image"`    // base, python, go, or custom image URL
+    Danger   bool   `yaml:"danger,omitempty"` // enable dangerous permissions
 }
 
-type Provider struct {
-    SeedConfigDir      string `yaml:"seed_config_dir,omitempty"`
-    ContainerMountPath string `yaml:"container_mount_path,omitempty"`
-    APIKeyEnvVar       string `yaml:"api_key_env_var,omitempty"`
+// Built-in providers with mount paths
+var BuiltinProviders = map[string]ProviderInfo{
+    "claude": {
+        DefaultImage: "base",
+        Mounts: []MountPoint{
+            {Source: "claude", Target: "/home/claude/.claude"},
+            // Additional mounts can be added for claude
+        },
+    },
+    "gemini": {
+        DefaultImage: "base",
+        Mounts: []MountPoint{
+            {Source: "gemini", Target: "/home/claude/.gemini"},
+            // Additional mounts can be added for gemini
+        },
+    },
 }
 ```
 
-**`<project-dir>/.reactor/config`:**
-```go
-type ProjectConfig struct {
-    Provider string `yaml:"provider"`
-    Account  string `yaml:"account"`
-    Image    string `yaml:"image"`
-}
+**Account directory structure:**
+```
+~/.reactor/
+└── <account>/           # e.g., cam (system username), work-account
+    └── <project-hash>/  # first 8 chars of project path hash
+        ├── claude/      # mounted to /home/claude/.claude
+        ├── gemini/      # mounted to /home/claude/.gemini  
+        └── openai/      # mounted to /home/claude/.openai
 ```
 
 #### **2.4.2. Data migration plan**
@@ -145,7 +168,7 @@ N/A. This is a CLI tool.
 
 **Phase 1: Core Scaffolding & Config**
 *   \[ \] PR 1.1: Set up Cobra CLI structure for all commands (`run`, `diff`, `accounts`, `config`).
-*   \[ \] PR 1.2: Implement the `core.ConfigService` to load and parse `providers.yaml` and `.reactor/config`.
+*   \[ \] PR 1.2: Implement the `core.ConfigService` to load project config and manage account directories.
 
 **Phase 2: Container Provisioning**
 *   \[ \] PR 2.1: Implement the `docker` layer to create, start, and stop a basic container, incorporating the full recovery logic.
@@ -159,6 +182,11 @@ N/A. This is a CLI tool.
 *   \[ \] PR 4.1: Implement the `--discovery-mode` flag and the `reactor diff` command.
 *   \[ \] PR 4.2: Implement the `--docker-host-integration` flag.
 *   \[ \] PR 4.3: Create user-facing documentation for all features.
+
+**Phase 5: Auto-Installation & Enhanced UX**
+*   \[ \] PR 5.1: Implement automatic AI agent installation in containers that don't have the specified agent pre-installed.
+*   \[ \] PR 5.2: Add interactive configuration flow as alternative to `reactor config init`.
+*   \[ \] PR 5.3: Implement smart container image selection based on project type detection (optional enhancement).
 
 ### **3.2. Testing strategy**
 
@@ -175,7 +203,7 @@ N/A. This is a CLI tool.
 ### **4.1. Security & privacy considerations**
 
 *   **Authentication & Authorization:** This tool does not have its own auth layer. It relies on the security of the underlying AI provider's configuration files, which it isolates.
-*   **Docker Host Integration (`--docker-host-integration`):** This is the primary security risk. Using this flag gives the container root-level access to the host's Docker daemon. The documentation must clearly warn users to only use this with trusted images.
+*   **Docker Host Integration (`--docker-host-integration`):** This is the primary security risk. Using this flag mounts the host's Docker socket into the container, giving it full host-level Docker daemon access (not Docker-in-Docker). The documentation must clearly warn users to only use this with trusted images.
 
 ### **4.2. Rollout & deployment**
 
@@ -191,10 +219,36 @@ N/A. This is a CLI tool.
 
 *   **Infrastructure Costs:** N/A. The tool runs entirely on the user's local machine.
 
-### **4.5. Open questions & assumptions**
+### **4.5. Container Images & Configuration**
 
-*   **Open Questions:**
-    *   What is the initial set of curated images (`golang`, `python`, etc.) we should build and provide?
+**Built-in Images:**
+Reactor provides three curated images with convenient short names:
+
+* **`base`**: Core development tools + AI agents (Claude, Gemini)
+  * Tools: curl, git, ca-certificates, wget, unzip, gnupg2, socat, sudo, ripgrep, jq, fzf, nano, vim, less, procps, htop, build-essential, shellcheck, man-db, node, npm
+  * AI Agents: Claude CLI, Gemini CLI pre-installed
+  * Image: `ghcr.io/reactor-suite/base:latest`
+
+* **`python`**: Base image + Python development environment  
+  * Additional: python3, python3-pip, uv, uvx and Python toolchain
+  * Image: `ghcr.io/reactor-suite/python:latest`
+
+* **`go`**: Base image + Go development environment
+  * Additional: Go toolchain with essential Go development tools
+  * Image: `ghcr.io/reactor-suite/go:latest`
+
+**Custom Images:**
+Users can specify any Docker image. The image must:
+- Have a `claude` user (or compatible user setup)
+- Support the AI agent specified in the provider configuration
+- Be compatible with the mounting strategy for agent configuration
+
+**Account-Based Configuration:**
+Configuration uses an account-based directory structure under `~/.reactor/<account>/` where each provider gets its own subdirectory. AI agents manage their own config files through their setup wizards when the directories are properly mounted.
+
+### **4.6. Open questions & assumptions**
+
 *   **Assumptions:**
     *   Users have Docker installed and have sufficient permissions to interact with the Docker daemon.
     *   Users are comfortable with the command line and the basic concepts of Docker containers.
+    *   AI agents will properly initialize their configuration when their expected config directories are mounted from the host.

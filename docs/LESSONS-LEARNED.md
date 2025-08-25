@@ -10,7 +10,7 @@
 - 99%+ session recovery success rate after container stops/restarts
 - Cross-platform compatibility (macOS ARM64/AMD64, Linux ARM64/AMD64)
 - Zero-configuration experience for 90%+ of use cases
-- Docker-in-Docker capabilities with full Docker API access
+- Docker host access capabilities with full Docker API access (via socket mounting)
 
 ## Technical Architecture Foundations
 
@@ -40,11 +40,11 @@
 
 ## Docker Integration Deep Dive
 
-### Docker Socket Access Pattern
+### Docker Host Access Pattern
 
 **Problem**: Enable Docker API access from within containers while maintaining security and cross-platform compatibility.
 
-**Solution**: Docker socket mounting with proper permission handling.
+**Solution**: Docker socket mounting with proper permission handling to grant containers host-level Docker access.
 
 **Dockerfile Pattern**:
 ```dockerfile
@@ -65,7 +65,8 @@ RUN usermod -aG docker claude
 - Validate Docker API connectivity before proceeding with operations
 
 **Security Considerations**:
-- Docker socket access grants full Docker API privileges - equivalent to root access
+- Docker socket access grants full Docker API privileges - equivalent to root access on the host
+- Container effectively has host-level Docker daemon access, not isolated Docker-in-Docker
 - Container must run with appropriate security context
 - Consider using Docker API over TCP with TLS for production deployments
 - Implement timeout contexts (30s default) for all Docker operations
