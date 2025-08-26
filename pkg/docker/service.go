@@ -3,6 +3,10 @@ package docker
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -194,4 +198,129 @@ type ContainerSpec struct {
 	Environment []string
 	Mounts      []string // In "source:target:mode" format
 	NetworkMode string
+}
+
+// ListReactorContainers returns all containers that match the reactor naming pattern
+func (s *Service) ListReactorContainers(ctx context.Context) ([]ContainerInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	containers, err := s.client.ContainerList(ctx, container.ListOptions{
+		All: true, // Include stopped containers
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	var reactorContainers []ContainerInfo
+	for _, c := range containers {
+		for _, containerName := range c.Names {
+			// Container names have leading slash, so remove it
+			name := strings.TrimPrefix(containerName, "/")
+			
+			// Check if this is a reactor container (with or without isolation prefix)
+			if s.isReactorContainer(name) {
+				var status ContainerStatus
+				switch c.State {
+				case "running":
+					status = StatusRunning
+				case "exited", "stopped":
+					status = StatusStopped
+				default:
+					status = StatusNotFound
+				}
+
+				reactorContainers = append(reactorContainers, ContainerInfo{
+					ID:     c.ID,
+					Name:   name,
+					Status: status,
+					Image:  c.Image,
+				})
+				break // Found matching name, no need to check other names for this container
+			}
+		}
+	}
+
+	return reactorContainers, nil
+}
+
+// FindProjectContainer finds a container for a specific project path
+func (s *Service) FindProjectContainer(ctx context.Context, account, projectPath, projectHash string) (*ContainerInfo, error) {
+	// Generate expected container name for this project
+	expectedName := s.generateContainerNameForProject(account, projectPath, projectHash)
+	
+	// Use existing ContainerExists method
+	containerInfo, err := s.ContainerExists(ctx, expectedName)
+	if err != nil {
+		return nil, err
+	}
+	
+	if containerInfo.Status == StatusNotFound {
+		return nil, nil // No container found, but no error
+	}
+	
+	return &containerInfo, nil
+}
+
+// isReactorContainer checks if a container name matches reactor naming pattern
+func (s *Service) isReactorContainer(name string) bool {
+	// Match patterns:
+	// reactor-{account}-{folder}-{hash}
+	// {prefix}-reactor-{account}-{folder}-{hash} (with isolation prefix)
+	
+	// Check for isolation prefix pattern first
+	if isolationPrefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); isolationPrefix != "" {
+		expectedPrefix := isolationPrefix + "-reactor-"
+		if strings.HasPrefix(name, expectedPrefix) {
+			return true
+		}
+	}
+	
+	// Check for standard reactor pattern
+	if strings.HasPrefix(name, "reactor-") {
+		// Verify it has the expected number of components
+		// reactor-{account}-{folder}-{hash} = 4 parts minimum
+		parts := strings.Split(name, "-")
+		return len(parts) >= 4 && parts[0] == "reactor"
+	}
+	
+	return false
+}
+
+// generateContainerNameForProject creates the expected container name for a project
+func (s *Service) generateContainerNameForProject(account, projectPath, projectHash string) string {
+	// This should match the logic in pkg/core/blueprint.go
+	folderName := filepath.Base(projectPath)
+	safeFolderName := s.sanitizeContainerName(folderName)
+	
+	baseName := fmt.Sprintf("reactor-%s-%s-%s", account, safeFolderName, projectHash)
+	if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
+		return fmt.Sprintf("%s-%s", prefix, baseName)
+	}
+	return baseName
+}
+
+// sanitizeContainerName mirrors the logic from pkg/core/blueprint.go
+func (s *Service) sanitizeContainerName(name string) string {
+	// Docker container names must match: [a-zA-Z0-9][a-zA-Z0-9_.-]*
+	reg := regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+	sanitized := reg.ReplaceAllString(name, "-")
+	
+	// Ensure it starts with alphanumeric
+	if len(sanitized) > 0 && !regexp.MustCompile(`^[a-zA-Z0-9]`).MatchString(sanitized) {
+		sanitized = "project-" + sanitized
+	}
+	
+	// Limit length
+	const maxFolderNameLength = 20
+	if len(sanitized) > maxFolderNameLength {
+		sanitized = sanitized[:maxFolderNameLength]
+		sanitized = strings.TrimRight(sanitized, "-")
+	}
+	
+	if sanitized == "" {
+		sanitized = "project"
+	}
+	
+	return sanitized
 }

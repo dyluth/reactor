@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/anthropics/reactor/pkg/config"
 	"github.com/anthropics/reactor/pkg/core"
@@ -43,6 +45,7 @@ lifecycle while keeping your host machine clean.`,
 
 	// Add subcommands
 	cmd.AddCommand(newRunCmd())
+	cmd.AddCommand(newSessionsCmd())
 	cmd.AddCommand(newDiffCmd())
 	cmd.AddCommand(newAccountsCmd())
 	cmd.AddCommand(newConfigCmd())
@@ -167,6 +170,39 @@ Examples:
 	return cmd
 }
 
+func newSessionsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "sessions",
+		Short: "Manage container sessions",
+		Long: `Manage and interact with reactor container sessions.
+
+List active and stopped containers, attach to running containers,
+and manage your development sessions across different projects.`,
+	}
+
+	// Add subcommands
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "List all reactor containers",
+		Long:  "List all reactor containers with their status and project information",
+		RunE:  sessionsListHandler,
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "attach [container-name]",
+		Short: "Attach to a container session",
+		Long: `Attach to a specific container session by name, or auto-attach to the current project's container.
+
+Examples:
+  reactor sessions attach                           # Auto-attach to current project
+  reactor sessions attach reactor-cam-myproject-abc123  # Attach to specific container`,
+		RunE: sessionsAttachHandler,
+		Args: cobra.MaximumNArgs(1),
+	})
+
+	return cmd
+}
+
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -238,6 +274,27 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 	blueprint := core.NewContainerBlueprint(resolved, mounts)
 	containerSpec := blueprint.ToContainerSpec()
 
+	// Enhanced verbose output showing container naming and discovery
+	if verbose {
+		fmt.Printf("[INFO] Project: %s (%s)\n", filepath.Base(resolved.ProjectRoot), resolved.ProjectRoot)
+		fmt.Printf("[INFO] Container name: %s\n", containerSpec.Name)
+	}
+
+	// Check for existing container first for enhanced verbose feedback
+	if verbose {
+		existingContainer, err := dockerService.ContainerExists(ctx, containerSpec.Name)
+		if err == nil {
+			switch existingContainer.Status {
+			case docker.StatusRunning:
+				fmt.Printf("[INFO] Found existing container: running\n")
+			case docker.StatusStopped:
+				fmt.Printf("[INFO] Found existing container: stopped (will be restarted)\n")
+			case docker.StatusNotFound:
+				fmt.Printf("[INFO] No existing container found (will create new one)\n")
+			}
+		}
+	}
+
 	// Provision container using recovery strategy
 	containerInfo, err := dockerService.ProvisionContainer(ctx, containerSpec)
 	if err != nil {
@@ -251,7 +308,12 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	// Attach to interactive session
-	fmt.Printf("Attaching to container session...\n")
+	if verbose {
+		fmt.Printf("[INFO] Attaching to container...\n")
+	} else {
+		fmt.Printf("Attaching to container session...\n")
+	}
+	
 	if err := dockerService.AttachInteractiveSession(ctx, containerInfo.ID); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}
@@ -276,7 +338,7 @@ func diffCmdHandler(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return fmt.Errorf("Container diff not implemented yet")
+	return fmt.Errorf("container diff not implemented yet")
 }
 
 func accountsListHandler(cmd *cobra.Command, args []string) error {
@@ -352,4 +414,162 @@ func versionHandler(cmd *cobra.Command, args []string) {
 	fmt.Printf("reactor version %s\n", Version)
 	fmt.Printf("Git commit: %s\n", GitCommit)
 	fmt.Printf("Build date: %s\n", BuildDate)
+}
+
+// Session command handlers
+func sessionsListHandler(cmd *cobra.Command, args []string) error {
+	// Check dependencies first
+	if err := config.CheckDependencies(); err != nil {
+		return err
+	}
+
+	// Initialize Docker service
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	// List all reactor containers
+	containers, err := dockerService.ListReactorContainers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list reactor containers: %w", err)
+	}
+
+	if len(containers) == 0 {
+		fmt.Println("No reactor containers found.")
+		fmt.Println("Run 'reactor run' to create a new container session.")
+		return nil
+	}
+
+	// Display containers in a table format
+	fmt.Printf("%-35s %-8s %-25s %-10s\n", "CONTAINER NAME", "STATUS", "IMAGE", "UPTIME")
+	fmt.Printf("%-35s %-8s %-25s %-10s\n", 
+		strings.Repeat("-", 35), 
+		strings.Repeat("-", 8), 
+		strings.Repeat("-", 25), 
+		strings.Repeat("-", 10))
+
+	for _, container := range containers {
+		status := "unknown"
+		switch container.Status {
+		case docker.StatusRunning:
+			status = "running"
+		case docker.StatusStopped:
+			status = "stopped"
+		case docker.StatusNotFound:
+			status = "missing"
+		}
+
+		// Truncate image name if too long
+		image := container.Image
+		if len(image) > 25 {
+			image = image[:22] + "..."
+		}
+
+		// For now, show "-" for uptime since we don't have that info easily available
+		// Could be enhanced to calculate from container inspection
+		uptime := "-"
+
+		fmt.Printf("%-35s %-8s %-25s %-10s\n", container.Name, status, image, uptime)
+	}
+
+	fmt.Printf("\nFound %d reactor container(s).\n", len(containers))
+	fmt.Println("Use 'reactor sessions attach <container-name>' to connect to a container.")
+
+	return nil
+}
+
+func sessionsAttachHandler(cmd *cobra.Command, args []string) error {
+	// Check dependencies first
+	if err := config.CheckDependencies(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	// Initialize Docker service
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	var containerName string
+
+	if len(args) == 0 {
+		// Auto-attach to current project container
+		// Load configuration to get project info
+		configService := config.NewService()
+		resolved, err := configService.LoadConfiguration("", "", "", false)
+		if err != nil {
+			return fmt.Errorf("failed to load project configuration: %w", err)
+		}
+
+		// Find container for current project
+		containerInfo, err := dockerService.FindProjectContainer(ctx, resolved.Account, resolved.ProjectRoot, resolved.ProjectHash)
+		if err != nil {
+			return fmt.Errorf("failed to find project container: %w", err)
+		}
+
+		if containerInfo == nil {
+			return fmt.Errorf("no container found for current project. Run 'reactor run' to create one")
+		}
+
+		containerName = containerInfo.Name
+		fmt.Printf("Found container for current project: %s\n", containerName)
+	} else {
+		// Use specified container name
+		containerName = args[0]
+	}
+
+	// Check if container exists and get its info
+	containerInfo, err := dockerService.ContainerExists(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to check container status: %w", err)
+	}
+
+	if containerInfo.Status == docker.StatusNotFound {
+		return fmt.Errorf("container '%s' not found", containerName)
+	}
+
+	// Start container if it's stopped
+	if containerInfo.Status == docker.StatusStopped {
+		fmt.Printf("Starting stopped container: %s\n", containerName)
+		if err := dockerService.StartContainer(ctx, containerInfo.ID); err != nil {
+			return fmt.Errorf("failed to start container: %w", err)
+		}
+		fmt.Println("Container started successfully.")
+	}
+
+	// Attach to the container
+	fmt.Printf("Attaching to container: %s\n", containerName)
+	if err := dockerService.AttachInteractiveSession(ctx, containerInfo.ID); err != nil {
+		return fmt.Errorf("failed to attach to container: %w", err)
+	}
+
+	// Show exit message
+	fmt.Printf("\nSession ended. Container '%s' is still running.\n", containerName)
+	fmt.Printf("Use 'docker stop %s' to stop it.\n", containerName)
+
+	return nil
 }

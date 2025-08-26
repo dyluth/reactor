@@ -3,6 +3,9 @@ package core
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/anthropics/reactor/pkg/config"
 	"github.com/anthropics/reactor/pkg/docker"
@@ -22,8 +25,8 @@ type ContainerBlueprint struct {
 
 // NewContainerBlueprint creates a container blueprint from resolved configuration and mounts
 func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec) *ContainerBlueprint {
-	// Generate deterministic container name with isolation prefix support
-	containerName := GenerateContainerName(resolved.Account, resolved.ProjectHash)
+	// Generate deterministic container name with project folder name and isolation prefix support
+	containerName := GenerateContainerName(resolved.Account, resolved.ProjectRoot, resolved.ProjectHash)
 
 	// Convert mount specifications to Docker bind format
 	dockerMounts := []string{}
@@ -58,11 +61,43 @@ func (b *ContainerBlueprint) ToContainerSpec() *docker.ContainerSpec {
 	}
 }
 
-// GenerateContainerName creates a deterministic container name with optional isolation prefix
-func GenerateContainerName(account, projectHash string) string {
-	baseName := fmt.Sprintf("reactor-%s-%s", account, projectHash)
+// GenerateContainerName creates a deterministic container name with project folder name and optional isolation prefix
+func GenerateContainerName(account, projectPath, projectHash string) string {
+	// Extract and sanitize project folder name
+	folderName := filepath.Base(projectPath)
+	safeFolderName := sanitizeContainerName(folderName)
+	
+	baseName := fmt.Sprintf("reactor-%s-%s-%s", account, safeFolderName, projectHash)
 	if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
 		return fmt.Sprintf("%s-%s", prefix, baseName)
 	}
 	return baseName
+}
+
+// sanitizeContainerName ensures the folder name is safe for use in container names
+func sanitizeContainerName(name string) string {
+	// Docker container names must match: [a-zA-Z0-9][a-zA-Z0-9_.-]*
+	// Replace invalid characters with hyphens
+	reg := regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
+	sanitized := reg.ReplaceAllString(name, "-")
+	
+	// Ensure it starts with alphanumeric
+	if len(sanitized) > 0 && !regexp.MustCompile(`^[a-zA-Z0-9]`).MatchString(sanitized) {
+		sanitized = "project-" + sanitized
+	}
+	
+	// Limit length to prevent overly long container names (keep reasonable length)
+	const maxFolderNameLength = 20
+	if len(sanitized) > maxFolderNameLength {
+		sanitized = sanitized[:maxFolderNameLength]
+		// Ensure it doesn't end with a hyphen after truncation
+		sanitized = strings.TrimRight(sanitized, "-")
+	}
+	
+	// Fallback if somehow empty
+	if sanitized == "" {
+		sanitized = "project"
+	}
+	
+	return sanitized
 }

@@ -9,10 +9,12 @@ import (
 func TestGetReactorHomeDir(t *testing.T) {
 	// Save original environment
 	originalPrefix := os.Getenv("REACTOR_ISOLATION_PREFIX")
-	defer os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+	defer func() {
+		_ = os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+	}()
 
 	// Test without isolation prefix
-	os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+	_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 	homeDir, err := GetReactorHomeDir()
 	if err != nil {
 		t.Errorf("GetReactorHomeDir failed: %v", err)
@@ -25,7 +27,7 @@ func TestGetReactorHomeDir(t *testing.T) {
 
 	// Test with isolation prefix
 	testPrefix := "test-12345"
-	os.Setenv("REACTOR_ISOLATION_PREFIX", testPrefix)
+	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", testPrefix)
 	
 	isolatedHomeDir, err := GetReactorHomeDir()
 	if err != nil {
@@ -46,10 +48,12 @@ func TestGetReactorHomeDir(t *testing.T) {
 func TestGetProjectConfigPath(t *testing.T) {
 	// Save original environment
 	originalPrefix := os.Getenv("REACTOR_ISOLATION_PREFIX")
-	defer os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+	defer func() {
+		_ = os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+	}()
 
 	// Test without isolation prefix
-	os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+	_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 	configPath := GetProjectConfigPath()
 	expectedPath := ".reactor.conf"
 	if configPath != expectedPath {
@@ -58,7 +62,7 @@ func TestGetProjectConfigPath(t *testing.T) {
 
 	// Test with isolation prefix
 	testPrefix := "test-67890"
-	os.Setenv("REACTOR_ISOLATION_PREFIX", testPrefix)
+	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", testPrefix)
 	
 	isolatedConfigPath := GetProjectConfigPath()
 	expectedIsolatedPath := "." + testPrefix + ".conf"
@@ -75,10 +79,12 @@ func TestGetProjectConfigPath(t *testing.T) {
 func TestIsolationPrefixEmpty(t *testing.T) {
 	// Save original environment
 	originalPrefix := os.Getenv("REACTOR_ISOLATION_PREFIX")
-	defer os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+	defer func() {
+		_ = os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+	}()
 
 	// Test with empty isolation prefix (should behave like no prefix)
-	os.Setenv("REACTOR_ISOLATION_PREFIX", "")
+	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", "")
 	
 	homeDir, err := GetReactorHomeDir()
 	if err != nil {

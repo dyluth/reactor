@@ -187,6 +187,11 @@ N/A. This is a CLI tool.
 *   \[ \] PR 5.1: Implement automatic AI agent installation in containers that don't have the specified agent pre-installed.
 *   \[ \] PR 5.2: Add interactive configuration flow as alternative to `reactor config init`.
 
+**Phase 6: Integrated In-Session Automation (Future)**
+*   [ ] PR 6.1: Introduce a new `automations.yaml` configuration to define rule-based automations (e.g., regex triggers, text-injection actions).
+*   [ ] PR 6.2: Add an `automation` key to `.reactor.conf` to allow projects to persist their desired automation setting.
+*   [ ] PR 6.3: Enhance `reactor run` to act as a process manager, spawning a managed "automaton" process that sits between the user and the container to apply the configured automation rules.
+
 
 ### **3.2. Testing strategy**
 

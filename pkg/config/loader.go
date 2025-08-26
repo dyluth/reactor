@@ -99,7 +99,7 @@ func CreateDefaultProjectConfig() (*ProjectConfig, error) {
 func CheckDependencies() error {
 	// Check for Docker
 	if err := checkCommand("docker"); err != nil {
-		return fmt.Errorf("Docker is required but not found. Please install Docker and ensure the daemon is running: %w", err)
+		return fmt.Errorf("docker is required but not found. Please install Docker and ensure the daemon is running: %w", err)
 	}
 
 	// Check for Git (for project hash generation and version info)

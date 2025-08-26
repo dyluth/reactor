@@ -20,7 +20,7 @@ CMD_DIR := ./cmd/reactor
 # Test isolation settings
 TEST_PREFIX := test-$(shell date +%s)-$(shell echo $$RANDOM)
 
-.PHONY: all build test test-isolated test-coverage test-coverage-isolated lint clean install help deps
+.PHONY: all build test test-unit test-integration test-isolated test-coverage test-coverage-isolated lint clean install help deps
 
 # Default target
 all: build
@@ -32,24 +32,40 @@ build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
 	@echo "Binary created at $(BUILD_DIR)/$(BINARY_NAME)"
 
-## Run all tests
-test:
-	go test -v ./...
+## Run all tests (unit + integration)
+test: test-unit test-integration
+
+## Run unit tests only
+test-unit:
+	go test -v ./pkg/config ./pkg/core ./pkg/docker
+
+## Run integration tests only
+test-integration:
+	@echo "Running integration tests..."
+	go test -v ./pkg/integration -run TestBasicReactorFunctionality
 
 ## Run tests with isolation (recommended for CI/development)
-test-isolated:
-	@echo "Running tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./...
+test-isolated: test-unit-isolated test-integration-isolated
+
+## Run unit tests with isolation
+test-unit-isolated:
+	@echo "Running unit tests with isolation prefix: $(TEST_PREFIX)"
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/config ./pkg/core ./pkg/docker
+
+## Run integration tests with isolation
+test-integration-isolated:
+	@echo "Running integration tests with isolation prefix: $(TEST_PREFIX)"
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/integration -run TestBasicReactorFunctionality
 
 ## Run tests with coverage
 test-coverage:
-	go test -v -coverprofile=coverage.out ./...
+	go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/integration
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Run tests with coverage and isolation (recommended for CI)
 test-coverage-isolated:
 	@echo "Running coverage tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./...
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/integration
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Run linting

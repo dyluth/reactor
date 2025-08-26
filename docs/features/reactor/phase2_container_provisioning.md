@@ -22,7 +22,7 @@ Phase 2 implements the core container provisioning functionality that transforms
 ### **1.3. Problem statement & user stories**
 
 **Problem Statement:**
-Phase 1 provided comprehensive configuration management, but `reactor run` currently returns "Container provisioning not implemented yet." Developers have configured their projects but cannot use them. They need the actual Docker container lifecycle management, state directory mounting, and session recovery that makes Reactor useful for daily development work.
+Phase 1 is complete with comprehensive configuration management and test isolation, but `reactor run` currently returns "Container provisioning not implemented yet." Developers have configured their projects and can manage configurations reliably, but cannot use them. They need the actual Docker container lifecycle management, state directory mounting, and session recovery that makes Reactor useful for daily development work.
 
 **User Stories:**
 
@@ -50,7 +50,7 @@ Phase 1 provided comprehensive configuration management, but `reactor run` curre
 ### **2.1. System context & constraints**
 
 * **Technology Stack**: Go 1.21+, Docker Go SDK, existing Cobra CLI framework from Phase 1, YAML configuration system from Phase 1.
-* **Current State**: Phase 1 implemented complete CLI structure and configuration management. The `runCmdHandler` currently loads and validates configuration but returns "Container provisioning not implemented yet." All configuration, validation, and account isolation logic is working.
+* **Current State**: Phase 1 is complete with CLI structure, configuration management, and test isolation functionality. The `runCmdHandler` currently loads and validates configuration but returns "Container provisioning not implemented yet." All configuration, validation, account isolation, and `REACTOR_ISOLATION_PREFIX` support is working and tested.
 * **Technical Constraints**: 
   * Must integrate seamlessly with existing Phase 1 configuration system
   * Depends on Docker daemon running on host machine
@@ -96,6 +96,12 @@ The Phase 2 architecture adds three new components to the existing Phase 1 found
 **Integration Points:**
 - `cmd/reactor/main.go`: Replace "not implemented yet" with real provisioning logic
 - `pkg/config/service.go`: No changes needed - Phase 1 configuration system is used as-is
+- **Phase 1 Provides Ready-to-Use**:
+  - `GetReactorHomeDir()` with isolation prefix support for state directory mounting
+  - `GetProjectConfigPath()` with isolation prefix support for configuration 
+  - Complete `ResolvedConfig` structure with all mount paths resolved
+  - Account/project directory structure validation
+  - Built-in provider and image mappings
 
 ```mermaid
 graph TB
@@ -119,11 +125,15 @@ graph TB
 
 ```go
 // pkg/core/blueprint.go
+import (
+    "fmt"
+    "os"
+)
+
 type ContainerBlueprint struct {
-    Name        string            // Deterministic container name: "reactor-{account}-{project-hash}"
-                                  // Example: "reactor-work-account-92b55e12"
-                                  // Will be prefixed with the value of $REACTOR_TEST_ENV if set 
-                                  // (e.g., "e2e-test-reactor-...") for test isolation.
+    Name        string            // Deterministic container name with isolation support
+                                  // Normal: "reactor-{account}-{project-hash}" → "reactor-cam-92b55e12"  
+                                  // Isolated: "{prefix}-reactor-{account}-{project-hash}" → "test-123-reactor-cam-92b55e12"
     Image       string            // Resolved container image  
     Mounts      []MountSpec       // Volume mounts for state directories
     Environment []EnvVar          // Environment variables
@@ -132,6 +142,15 @@ type ContainerBlueprint struct {
     User        string            // Container user (e.g., "claude")
     NetworkMode string            // Network configuration
     ProjectRoot string            // Host project directory to mount
+}
+
+// GenerateContainerName creates deterministic container name with optional isolation prefix
+func GenerateContainerName(account, projectHash string) string {
+    baseName := fmt.Sprintf("reactor-%s-%s", account, projectHash)
+    if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
+        return fmt.Sprintf("%s-%s", prefix, baseName)
+    }
+    return baseName
 }
 
 type MountSpec struct {
@@ -254,6 +273,11 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 ### **3.2. Testing strategy**
 
 All integration and end-to-end tests **must** be executed with the `REACTOR_ISOLATION_PREFIX` environment variable set to a unique value. This ensures that each test run is fully isolated and does not interfere with the user's default `~/.reactor` directory or other concurrent tests.
+
+**Recommended Testing Commands:**
+- `make test-isolated` - Run all tests with automatic isolation prefix
+- `make test-coverage-isolated` - Run coverage tests with isolation
+- Manual testing: `REACTOR_ISOLATION_PREFIX=phase2-dev-test ./build/reactor run`
 
 * **Unit Tests**: 
   * **StateService**: Test directory validation, mount point specification generation, error messaging for missing directories
