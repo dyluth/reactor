@@ -250,7 +250,7 @@ func (s *Service) handleTerminalEvents(ctx context.Context, containerID, execID 
 			if sig == nil {
 				return // Channel closed
 			}
-			
+
 			// Forward signal to container process
 			if err := s.forwardSignal(ctx, execID, sig); err != nil {
 				// Log warning but don't fail the session

@@ -69,7 +69,7 @@ func (s *StateService) GetMounts() []MountSpec {
 	return mounts
 }
 
-// MountSpec defines a container mount specification  
+// MountSpec defines a container mount specification
 type MountSpec struct {
 	Source string // Host path (absolute)
 	Target string // Container path

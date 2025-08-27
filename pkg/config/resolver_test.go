@@ -28,7 +28,7 @@ func TestGetReactorHomeDir(t *testing.T) {
 	// Test with isolation prefix
 	testPrefix := "test-12345"
 	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", testPrefix)
-	
+
 	isolatedHomeDir, err := GetReactorHomeDir()
 	if err != nil {
 		t.Errorf("GetReactorHomeDir with isolation failed: %v", err)
@@ -63,7 +63,7 @@ func TestGetProjectConfigPath(t *testing.T) {
 	// Test with isolation prefix
 	testPrefix := "test-67890"
 	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", testPrefix)
-	
+
 	isolatedConfigPath := GetProjectConfigPath()
 	expectedIsolatedPath := "." + testPrefix + ".conf"
 	if isolatedConfigPath != expectedIsolatedPath {
@@ -85,22 +85,22 @@ func TestIsolationPrefixEmpty(t *testing.T) {
 
 	// Test with empty isolation prefix (should behave like no prefix)
 	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", "")
-	
+
 	homeDir, err := GetReactorHomeDir()
 	if err != nil {
 		t.Errorf("GetReactorHomeDir with empty prefix failed: %v", err)
 	}
-	
+
 	configPath := GetProjectConfigPath()
-	
+
 	// Should be same as default behavior
 	expectedHomeSuffix := ".reactor"
 	expectedConfigPath := ".reactor.conf"
-	
+
 	if filepath.Base(homeDir) != expectedHomeSuffix {
 		t.Errorf("Expected default home directory suffix %s, got %s", expectedHomeSuffix, filepath.Base(homeDir))
 	}
-	
+
 	if configPath != expectedConfigPath {
 		t.Errorf("Expected default config path %s, got %s", expectedConfigPath, configPath)
 	}

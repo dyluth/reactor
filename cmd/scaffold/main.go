@@ -1,6 +1,6 @@
 package main
 
-// Placeholder for Reactor-Scaffold implementation  
+// Placeholder for Reactor-Scaffold implementation
 // This will be implemented in a future phase
 
 func main() {

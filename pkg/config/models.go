@@ -7,10 +7,10 @@ import (
 
 // ProjectConfig represents the project-level configuration stored in .reactor.conf
 type ProjectConfig struct {
-	Provider string `yaml:"provider"`           // claude, gemini, or custom
-	Account  string `yaml:"account"`            // account name for isolation
-	Image    string `yaml:"image"`              // base, python, go, or custom image URL
-	Danger   bool   `yaml:"danger,omitempty"`   // enable dangerous permissions
+	Provider string `yaml:"provider"`         // claude, gemini, or custom
+	Account  string `yaml:"account"`          // account name for isolation
+	Image    string `yaml:"image"`            // base, python, go, or custom image URL
+	Danger   bool   `yaml:"danger,omitempty"` // enable dangerous permissions
 }
 
 // MountPoint defines a directory mount for providers
@@ -74,4 +74,3 @@ func GetSystemUsername() (string, error) {
 	}
 	return currentUser.Username, nil
 }
-

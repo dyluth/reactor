@@ -13,44 +13,44 @@ import (
 func TestReactorCLIBasicCommands(t *testing.T) {
 	// Build reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
-	defer os.Remove(reactorBinary)
+	defer func() { _ = os.Remove(reactorBinary) }()
 
 	tests := []struct {
-		name           string
-		args           []string
+		name             string
+		args             []string
 		expectedInStdout []string
 		expectedInStderr []string
-		shouldFail     bool
+		shouldFail       bool
 	}{
 		{
-			name:           "help command",
-			args:           []string{"--help"},
+			name:             "help command",
+			args:             []string{"--help"},
 			expectedInStdout: []string{"Reactor provides simple, fast, and reliable containerized development environments"},
-			shouldFail:     false,
+			shouldFail:       false,
 		},
 		{
-			name:           "version command",
-			args:           []string{"version"},
+			name:             "version command",
+			args:             []string{"version"},
 			expectedInStdout: []string{"reactor version"},
-			shouldFail:     false,
+			shouldFail:       false,
 		},
 		{
-			name:           "sessions help",
-			args:           []string{"sessions", "--help"},
+			name:             "sessions help",
+			args:             []string{"sessions", "--help"},
 			expectedInStdout: []string{"Manage and interact with reactor container sessions", "Available Commands:", "attach", "list"},
-			shouldFail:     false,
+			shouldFail:       false,
 		},
 		{
-			name:           "sessions list with no containers",
-			args:           []string{"sessions", "list"},
+			name:             "sessions list with no containers",
+			args:             []string{"sessions", "list"},
 			expectedInStdout: []string{"No reactor containers found"},
-			shouldFail:     false,
+			shouldFail:       false,
 		},
 		{
-			name:           "config help",
-			args:           []string{"config", "--help"},
+			name:             "config help",
+			args:             []string{"config", "--help"},
 			expectedInStdout: []string{"Manage project", "Available Commands:", "show", "get", "set", "init"},
-			shouldFail:     false,
+			shouldFail:       false,
 		},
 	}
 
@@ -58,7 +58,7 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := exec.Command(reactorBinary, tt.args...)
 			cmd.Env = setupTestEnv("test-integration-" + randomString(8))
-			
+
 			output, err := cmd.CombinedOutput()
 			outputStr := string(output)
 
@@ -81,11 +81,11 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 // TestReactorConfigOperations tests config initialization and management
 func TestReactorConfigOperations(t *testing.T) {
 	reactorBinary := buildReactorBinary(t)
-	defer os.Remove(reactorBinary)
+	defer func() { _ = os.Remove(reactorBinary) }()
 
 	// Create temporary directory for testing
 	tempDir := createTempDir(t, "reactor-config-test")
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	isolationPrefix := "test-config-" + randomString(8)
 	env := []string{
@@ -96,7 +96,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config init failed: %v, output: %s", err, string(output))
@@ -128,7 +128,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config show failed: %v, output: %s", err, string(output))
@@ -154,7 +154,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "--verbose", "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config show --verbose failed: %v, output: %s", err, string(output))
@@ -179,7 +179,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "config", "set", "provider", "gemini")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config set failed: %v, output: %s", err, string(output))
@@ -193,7 +193,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "get", "provider")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
-		
+
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config get failed: %v, output: %s", err, string(output))
@@ -208,24 +208,24 @@ func TestReactorConfigOperations(t *testing.T) {
 // TestContainerNaming tests the enhanced container naming scheme
 func TestContainerNaming(t *testing.T) {
 	reactorBinary := buildReactorBinary(t)
-	defer os.Remove(reactorBinary)
+	defer func() { _ = os.Remove(reactorBinary) }()
 
 	// Create test directories with different names to test sanitization
 	testCases := []struct {
-		dirName            string
+		dirName               string
 		expectedContainerPart string
 	}{
 		{"simple-project", "simple-project"},
 		{"my_project", "my_project"},
 		{"project.with.dots", "project.with.dots"},
 		{"very-long-project-name-that-exceeds-limits", "very-long-project-na"}, // Should be truncated to 20 chars
-		{"project with spaces", "project-with-spaces"}, // Spaces should become hyphens
+		{"project with spaces", "project-with-spaces"},                         // Spaces should become hyphens
 	}
 
 	for _, tc := range testCases {
 		t.Run("naming_"+tc.dirName, func(t *testing.T) {
 			tempDir := createTempDir(t, tc.dirName)
-			defer os.RemoveAll(tempDir)
+			defer func() { _ = os.RemoveAll(tempDir) }()
 
 			isolationPrefix := "test-naming-" + randomString(8)
 			env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}
@@ -243,7 +243,7 @@ func TestContainerNaming(t *testing.T) {
 			cmd = exec.Command(reactorBinary, "config", "show")
 			cmd.Dir = tempDir
 			cmd.Env = append(os.Environ(), env...)
-			
+
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("config show failed: %v", err)
@@ -263,11 +263,11 @@ func TestContainerNaming(t *testing.T) {
 
 func buildReactorBinary(t *testing.T) string {
 	t.Helper()
-	
+
 	// Build the reactor binary
 	tempBinary := filepath.Join(t.TempDir(), "reactor-test")
 	cmd := exec.Command("go", "build", "-o", tempBinary, "./cmd/reactor")
-	
+
 	// Set the working directory to the project root
 	// When running from pkg/integration, we need to go up two levels
 	workDir, err := filepath.Abs("../..")
@@ -275,23 +275,23 @@ func buildReactorBinary(t *testing.T) string {
 		t.Fatalf("Failed to get project root: %v", err)
 	}
 	cmd.Dir = workDir
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to build reactor binary: %v\nOutput: %s", err, string(output))
 	}
-	
+
 	return tempBinary
 }
 
 func createTempDir(t *testing.T, name string) string {
 	t.Helper()
-	
+
 	tempDir := filepath.Join(t.TempDir(), name)
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	
+
 	return tempDir
 }
 
@@ -300,20 +300,20 @@ func randomString(length int) string {
 	result := make([]byte, length)
 	for i := range result {
 		result[i] = charset[time.Now().UnixNano()%int64(len(charset))]
-		time.Sleep(1) // Ensure different timestamps
+		time.Sleep(time.Nanosecond) // Ensure different timestamps
 	}
 	return string(result)
 }
 
 func setupTestEnv(isolationPrefix string) []string {
-	env := append(os.Environ(), 
+	env := append(os.Environ(),
 		"REACTOR_ISOLATION_PREFIX="+isolationPrefix,
 	)
-	
+
 	// Ensure HOME is set (required for config operations)
 	if home := os.Getenv("HOME"); home != "" {
 		env = append(env, "HOME="+home)
 	}
-	
+
 	return env
 }

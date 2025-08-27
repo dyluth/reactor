@@ -7,9 +7,15 @@ import (
 
 // ProvisionContainer implements the three-phase container recovery strategy:
 // 1. Check for running container with deterministic name
-// 2. Check for stopped container and restart it  
+// 2. Check for stopped container and restart it
 // 3. Create new container only if needed
+// For discovery containers, always removes existing containers to ensure clean environment
 func (s *Service) ProvisionContainer(ctx context.Context, spec *ContainerSpec) (ContainerInfo, error) {
+	return s.ProvisionContainerWithCleanup(ctx, spec, false)
+}
+
+// ProvisionContainerWithCleanup allows specifying whether to always clean up existing containers
+func (s *Service) ProvisionContainerWithCleanup(ctx context.Context, spec *ContainerSpec, forceCleanup bool) (ContainerInfo, error) {
 	// Phase 1: Check if container already exists
 	containerInfo, err := s.ContainerExists(ctx, spec.Name)
 	if err != nil {
@@ -18,23 +24,40 @@ func (s *Service) ProvisionContainer(ctx context.Context, spec *ContainerSpec) (
 
 	switch containerInfo.Status {
 	case StatusRunning:
-		// Container is already running - return it
-		return containerInfo, nil
+		if forceCleanup {
+			// Discovery mode: stop and remove existing container for fresh start
+			if err := s.StopContainer(ctx, containerInfo.ID); err != nil {
+				return ContainerInfo{}, fmt.Errorf("failed to stop existing container for cleanup: %w", err)
+			}
+			if err := s.RemoveContainer(ctx, containerInfo.ID); err != nil {
+				return ContainerInfo{}, fmt.Errorf("failed to remove existing container for cleanup: %w", err)
+			}
+		} else {
+			// Normal mode: Container is already running - return it
+			return containerInfo, nil
+		}
 
 	case StatusStopped:
-		// Container exists but is stopped - restart it
-		if err := s.StartContainer(ctx, containerInfo.ID); err != nil {
-			// If restart fails, remove the broken container and create new one
-			if removeErr := s.RemoveContainer(ctx, containerInfo.ID); removeErr != nil {
-				return ContainerInfo{}, fmt.Errorf("failed to start container %s and failed to remove it: start error: %w, remove error: %v", containerInfo.ID, err, removeErr)
+		if forceCleanup {
+			// Discovery mode: remove existing container for fresh start
+			if err := s.RemoveContainer(ctx, containerInfo.ID); err != nil {
+				return ContainerInfo{}, fmt.Errorf("failed to remove existing container for cleanup: %w", err)
 			}
-			// Fall through to create new container
-			break
+		} else {
+			// Normal mode: Container exists but is stopped - restart it
+			if err := s.StartContainer(ctx, containerInfo.ID); err != nil {
+				// If restart fails, remove the broken container and create new one
+				if removeErr := s.RemoveContainer(ctx, containerInfo.ID); removeErr != nil {
+					return ContainerInfo{}, fmt.Errorf("failed to start container %s and failed to remove it: start error: %w, remove error: %v", containerInfo.ID, err, removeErr)
+				}
+				// Fall through to create new container
+				break
+			}
+
+			// Successfully restarted
+			containerInfo.Status = StatusRunning
+			return containerInfo, nil
 		}
-		
-		// Successfully restarted
-		containerInfo.Status = StatusRunning
-		return containerInfo, nil
 
 	case StatusNotFound:
 		// Container doesn't exist - will create new one below
@@ -59,4 +82,3 @@ func (s *Service) ProvisionContainer(ctx context.Context, spec *ContainerSpec) (
 	newContainer.Status = StatusRunning
 	return newContainer, nil
 }
-

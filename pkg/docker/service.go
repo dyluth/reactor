@@ -217,7 +217,7 @@ func (s *Service) ListReactorContainers(ctx context.Context) ([]ContainerInfo, e
 		for _, containerName := range c.Names {
 			// Container names have leading slash, so remove it
 			name := strings.TrimPrefix(containerName, "/")
-			
+
 			// Check if this is a reactor container (with or without isolation prefix)
 			if s.isReactorContainer(name) {
 				var status ContainerStatus
@@ -248,17 +248,17 @@ func (s *Service) ListReactorContainers(ctx context.Context) ([]ContainerInfo, e
 func (s *Service) FindProjectContainer(ctx context.Context, account, projectPath, projectHash string) (*ContainerInfo, error) {
 	// Generate expected container name for this project
 	expectedName := s.generateContainerNameForProject(account, projectPath, projectHash)
-	
+
 	// Use existing ContainerExists method
 	containerInfo, err := s.ContainerExists(ctx, expectedName)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if containerInfo.Status == StatusNotFound {
 		return nil, nil // No container found, but no error
 	}
-	
+
 	return &containerInfo, nil
 }
 
@@ -267,7 +267,7 @@ func (s *Service) isReactorContainer(name string) bool {
 	// Match patterns:
 	// reactor-{account}-{folder}-{hash}
 	// {prefix}-reactor-{account}-{folder}-{hash} (with isolation prefix)
-	
+
 	// Check for isolation prefix pattern first
 	if isolationPrefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); isolationPrefix != "" {
 		expectedPrefix := isolationPrefix + "-reactor-"
@@ -275,7 +275,7 @@ func (s *Service) isReactorContainer(name string) bool {
 			return true
 		}
 	}
-	
+
 	// Check for standard reactor pattern
 	if strings.HasPrefix(name, "reactor-") {
 		// Verify it has the expected number of components
@@ -283,7 +283,7 @@ func (s *Service) isReactorContainer(name string) bool {
 		parts := strings.Split(name, "-")
 		return len(parts) >= 4 && parts[0] == "reactor"
 	}
-	
+
 	return false
 }
 
@@ -292,7 +292,7 @@ func (s *Service) generateContainerNameForProject(account, projectPath, projectH
 	// This should match the logic in pkg/core/blueprint.go
 	folderName := filepath.Base(projectPath)
 	safeFolderName := s.sanitizeContainerName(folderName)
-	
+
 	baseName := fmt.Sprintf("reactor-%s-%s-%s", account, safeFolderName, projectHash)
 	if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
 		return fmt.Sprintf("%s-%s", prefix, baseName)
@@ -305,22 +305,63 @@ func (s *Service) sanitizeContainerName(name string) string {
 	// Docker container names must match: [a-zA-Z0-9][a-zA-Z0-9_.-]*
 	reg := regexp.MustCompile(`[^a-zA-Z0-9_.-]`)
 	sanitized := reg.ReplaceAllString(name, "-")
-	
+
 	// Ensure it starts with alphanumeric
 	if len(sanitized) > 0 && !regexp.MustCompile(`^[a-zA-Z0-9]`).MatchString(sanitized) {
 		sanitized = "project-" + sanitized
 	}
-	
+
 	// Limit length
 	const maxFolderNameLength = 20
 	if len(sanitized) > maxFolderNameLength {
 		sanitized = sanitized[:maxFolderNameLength]
 		sanitized = strings.TrimRight(sanitized, "-")
 	}
-	
+
 	if sanitized == "" {
 		sanitized = "project"
 	}
-	
+
 	return sanitized
+}
+
+// FileChange represents a filesystem change in a container
+type FileChange struct {
+	Kind string // A (Added), D (Deleted), C (Changed)
+	Path string // Path to the changed file
+}
+
+// ContainerDiff returns filesystem changes made to a container
+func (s *Service) ContainerDiff(ctx context.Context, containerID string) ([]FileChange, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Get container diff from Docker
+	changes, err := s.client.ContainerDiff(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container diff: %w", err)
+	}
+
+	// Convert to our FileChange format
+	var fileChanges []FileChange
+	for _, change := range changes {
+		var kind string
+		switch change.Kind {
+		case 0: // ADDED
+			kind = "A"
+		case 1: // DELETED
+			kind = "D"
+		case 2: // CHANGED
+			kind = "C"
+		default:
+			kind = "?"
+		}
+
+		fileChanges = append(fileChanges, FileChange{
+			Kind: kind,
+			Path: change.Path,
+		})
+	}
+
+	return fileChanges, nil
 }

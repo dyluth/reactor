@@ -88,10 +88,10 @@ func CreateDefaultProjectConfig() (*ProjectConfig, error) {
 	}
 
 	return &ProjectConfig{
-		Provider: "claude",           // Default to Claude
-		Account:  username,           // Use system username
-		Image:    "base",             // Default to base image
-		Danger:   false,              // Default to safe mode
+		Provider: "claude", // Default to Claude
+		Account:  username, // Use system username
+		Image:    "base",   // Default to base image
+		Danger:   false,    // Default to safe mode
 	}, nil
 }
 

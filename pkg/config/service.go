@@ -122,7 +122,7 @@ func (s *Service) InitializeProject() error {
 	fmt.Printf("  account:  %s\n", config.Account)
 	fmt.Printf("  image:    %s\n", config.Image)
 	fmt.Printf("  danger:   %t\n\n", config.Danger)
-	
+
 	fmt.Printf("To change these settings, run:\n")
 	fmt.Printf("  reactor config set provider <claude|gemini>\n")
 	fmt.Printf("  reactor config set account <account-name>\n")
@@ -135,7 +135,7 @@ func (s *Service) InitializeProject() error {
 // createProjectDirectories creates the necessary account and provider directories
 func (s *Service) createProjectDirectories(config *ProjectConfig) error {
 	projectHash := GenerateProjectHash(s.projectRoot)
-	
+
 	reactorHome, err := GetReactorHomeDir()
 	if err != nil {
 		return err
@@ -301,14 +301,14 @@ func (s *Service) ListAccounts() error {
 	fmt.Printf("Configured accounts:\n")
 	for _, account := range accounts {
 		fmt.Printf("  %s\n", account)
-		
+
 		// Show projects for this account
 		accountDir := filepath.Join(reactorHome, account)
 		projectEntries, err := os.ReadDir(accountDir)
 		if err != nil {
 			continue
 		}
-		
+
 		for _, project := range projectEntries {
 			if project.IsDir() {
 				fmt.Printf("    project: %s\n", project.Name())

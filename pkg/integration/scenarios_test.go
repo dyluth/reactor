@@ -20,7 +20,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Step 1 - config init failed: %v, output: %s", err, string(output))
@@ -34,7 +34,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Step 2 - config show failed: %v, output: %s", err, string(output))
@@ -43,7 +43,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		outputStr := string(output)
 		requiredConfigItems := []string{
 			"provider: claude",
-			"account:  cam", 
+			"account:  cam",
 			"project root:    " + tempDir,
 			"project hash:",
 		}
@@ -58,7 +58,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "set", "image", "python")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Step 3 - config set failed: %v, output: %s", err, string(output))
@@ -72,7 +72,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "get", "image")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Step 4 - config get failed: %v, output: %s", err, string(output))
@@ -86,7 +86,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "sessions", "list")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Step 5 - sessions list failed: %v, output: %s", err, string(output))
@@ -200,7 +200,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "--verbose", "config", "init")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Verbose config init failed: %v, output: %s", err, string(output))
@@ -215,7 +215,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "--verbose", "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Verbose config show failed: %v, output: %s", err, string(output))
@@ -225,7 +225,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		// Should contain all the standard config info
 		verboseExpected := []string{
 			"Project Configuration",
-			"Resolved Configuration:", 
+			"Resolved Configuration:",
 			"project root:",
 			"project hash:",
 			"Available Providers:",
@@ -262,7 +262,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "set", "provider", "invalid-provider")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		// This might succeed (just setting the value) or fail with validation
 		// Either behavior is acceptable as long as it doesn't crash
@@ -274,7 +274,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		_, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Errorf("Config system should remain functional after invalid input: %v", err)
@@ -290,7 +290,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		output, err := cmd.CombinedOutput()
 		// Should either show defaults or give a helpful error
 		if err != nil {
@@ -305,7 +305,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		_, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("Should be able to recover with config init: %v", err)
@@ -315,7 +315,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, env...)
-		
+
 		_, err = cmd.CombinedOutput()
 		if err != nil {
 			t.Errorf("Config show should work after init: %v", err)
@@ -328,23 +328,23 @@ func TestContainerNameGeneration(t *testing.T) {
 	reactorBinary := buildReactorBinary(t)
 
 	testCases := []struct {
-		name            string
-		projectName     string
-		isolationPrefix string
-		shouldContain   []string
+		name             string
+		projectName      string
+		isolationPrefix  string
+		shouldContain    []string
 		shouldNotContain []string
 	}{
 		{
 			name:            "simple project with isolation",
-			projectName:     "my-simple-project", 
+			projectName:     "my-simple-project",
 			isolationPrefix: "test-simple",
 			shouldContain:   []string{"my-simple-project"},
 		},
 		{
-			name:            "project with special characters",
-			projectName:     "my@project#with$special%chars",
-			isolationPrefix: "test-special",
-			shouldContain:   []string{"my-project-with-special-chars"}, // Should be sanitized
+			name:             "project with special characters",
+			projectName:      "my@project#with$special%chars",
+			isolationPrefix:  "test-special",
+			shouldContain:    []string{"my-project-with-special-chars"}, // Should be sanitized
 			shouldNotContain: []string{"@", "#", "$", "%"},
 		},
 		{
@@ -354,10 +354,10 @@ func TestContainerNameGeneration(t *testing.T) {
 			shouldContain:   []string{"this-is-a-very-long"}, // Should be truncated
 		},
 		{
-			name:            "project with spaces and underscores",
-			projectName:     "my project_with mixed_separators",
-			isolationPrefix: "test-mixed",
-			shouldContain:   []string{"my-project_with-mixed"}, // Spaces become hyphens
+			name:             "project with spaces and underscores",
+			projectName:      "my project_with mixed_separators",
+			isolationPrefix:  "test-mixed",
+			shouldContain:    []string{"my-project_with-mixed"}, // Spaces become hyphens
 			shouldNotContain: []string{" "},
 		},
 	}
@@ -380,7 +380,7 @@ func TestContainerNameGeneration(t *testing.T) {
 			cmd = exec.Command(reactorBinary, "config", "show")
 			cmd.Dir = tempDir
 			cmd.Env = append(cmd.Env, env...)
-			
+
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("Config show failed for %s: %v", tc.name, err)
@@ -391,7 +391,7 @@ func TestContainerNameGeneration(t *testing.T) {
 			// Check expected content
 			for _, expected := range tc.shouldContain {
 				if !strings.Contains(outputStr, expected) {
-					t.Errorf("Test %s: Expected output to contain '%s' but got: %s", 
+					t.Errorf("Test %s: Expected output to contain '%s' but got: %s",
 						tc.name, expected, outputStr)
 				}
 			}
@@ -399,7 +399,7 @@ func TestContainerNameGeneration(t *testing.T) {
 			// Check that unwanted content is not present
 			for _, unwanted := range tc.shouldNotContain {
 				if strings.Contains(outputStr, unwanted) {
-					t.Errorf("Test %s: Expected output to NOT contain '%s' but got: %s", 
+					t.Errorf("Test %s: Expected output to NOT contain '%s' but got: %s",
 						tc.name, unwanted, outputStr)
 				}
 			}

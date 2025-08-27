@@ -49,6 +49,7 @@ lifecycle while keeping your host machine clean.`,
 	cmd.AddCommand(newDiffCmd())
 	cmd.AddCommand(newAccountsCmd())
 	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newCompletionCmd())
 	cmd.AddCommand(newVersionCmd())
 
 	return cmd
@@ -61,11 +62,17 @@ func newRunCmd() *cobra.Command {
 		Long: `Run an AI agent in a containerized development environment with
 persistent configuration and session management.
 
+The run command provisions a Docker container with your AI agent and project
+files, then attaches you to an interactive session. Containers are automatically
+reused when possible for fast startup times.
+
 Examples:
   reactor run                              # Use project configuration
-  reactor run --provider claude           # Override provider
+  reactor run --provider claude           # Override provider to claude
   reactor run --image python --danger     # Use Python image with danger mode
-  reactor run --account work-account      # Use specific account`,
+  reactor run --account work-account      # Use specific account for isolation
+
+For more details, see the full documentation.`,
 		RunE: runCmdHandler,
 	}
 
@@ -74,16 +81,26 @@ Examples:
 	cmd.Flags().String("account", "", "Account for configuration isolation")
 	cmd.Flags().String("image", "", "Container image (base, python, go, or custom URL)")
 	cmd.Flags().Bool("danger", false, "Enable dangerous permissions for AI agent")
+	cmd.Flags().Bool("discovery-mode", false, "Run with no mounts for configuration discovery")
 
 	return cmd
 }
 
 func newDiffCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "diff",
+		Use:   "diff [container-name]",
 		Short: "Show container filesystem changes",
 		Long: `Show changes made to container filesystem during AI agent session.
-Useful for discovery mode to understand what files an agent creates.`,
+
+This command is particularly useful for discovery mode to understand what
+configuration files and directories an AI agent creates. Without arguments,
+it operates on the discovery container for the current project.
+
+Examples:
+  reactor diff                                    # Diff current project's discovery container
+  reactor diff reactor-discovery-cam-myproject   # Diff specific container by name
+
+For more details, see the full documentation.`,
 		RunE: diffCmdHandler,
 	}
 
@@ -96,7 +113,18 @@ func newAccountsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "accounts",
 		Short: "Manage account configurations",
-		Long:  `Manage isolated account configurations for different contexts (work, personal, etc.)`,
+		Long: `Manage isolated account configurations for different contexts.
+
+The accounts system allows you to maintain separate AI agent configurations
+for different contexts like work, personal projects, or different teams.
+Each account has its own configuration directories and state isolation.
+
+Examples:
+  reactor accounts list           # List all configured accounts
+  reactor accounts show          # Show current account
+  reactor accounts set work      # Switch to work account
+
+For more details, see the full documentation.`,
 	}
 
 	cmd.AddCommand(&cobra.Command{
@@ -128,7 +156,19 @@ func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage project configuration",
-		Long:  `Manage project-specific configuration for providers, accounts, and settings.`,
+		Long: `Manage project-specific configuration for providers, accounts, and settings.
+
+The config command helps you initialize, view, and modify reactor configuration
+for your projects. Each project can have different providers, accounts, and
+container images configured independently.
+
+Examples:
+  reactor config init                # Initialize project configuration
+  reactor config show               # Display current configuration
+  reactor config set provider claude # Set AI provider to claude
+  reactor config get account        # Get current account setting
+
+For more details, see the full documentation.`,
 	}
 
 	cmd.AddCommand(&cobra.Command{
@@ -176,16 +216,29 @@ func newSessionsCmd() *cobra.Command {
 		Short: "Manage container sessions",
 		Long: `Manage and interact with reactor container sessions.
 
-List active and stopped containers, attach to running containers,
-and manage your development sessions across different projects.`,
+The sessions command helps you list, inspect, and attach to reactor containers
+across different projects and accounts. This enables easy switching between
+development contexts without losing your work.
+
+Examples:
+  reactor sessions list          # Show all reactor containers  
+  reactor sessions attach        # Auto-attach to current project
+  reactor sessions attach name   # Attach to specific container
+
+For more details, see the full documentation.`,
 	}
 
 	// Add subcommands
 	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List all reactor containers",
-		Long:  "List all reactor containers with their status and project information",
-		RunE:  sessionsListHandler,
+		Long: `List all reactor containers with their status and project information.
+
+Shows containers across all accounts and projects, including both running and
+stopped containers. Use this to see what development environments are available.
+
+For more details, see the full documentation.`,
+		RunE: sessionsListHandler,
 	})
 
 	cmd.AddCommand(&cobra.Command{
@@ -193,13 +246,52 @@ and manage your development sessions across different projects.`,
 		Short: "Attach to a container session",
 		Long: `Attach to a specific container session by name, or auto-attach to the current project's container.
 
+Without arguments, automatically finds and attaches to the container for the current
+project. With a container name, attaches to that specific container. Stopped
+containers are automatically started before attachment.
+
 Examples:
   reactor sessions attach                           # Auto-attach to current project
-  reactor sessions attach reactor-cam-myproject-abc123  # Attach to specific container`,
+  reactor sessions attach reactor-cam-myproject-abc123  # Attach to specific container
+
+For more details, see the full documentation.`,
 		RunE: sessionsAttachHandler,
 		Args: cobra.MaximumNArgs(1),
 	})
 
+	return cmd
+}
+
+func newCompletionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish]",
+		Short: "Generate shell completion scripts",
+		Long: `Generate completion scripts for your shell.
+
+To install completions:
+
+  # Bash
+  source <(reactor completion bash)
+  
+  # To load completions permanently, add to your ~/.bashrc:
+  echo 'source <(reactor completion bash)' >> ~/.bashrc
+
+  # Zsh
+  source <(reactor completion zsh)
+  
+  # To load completions permanently, add to your ~/.zshrc:
+  echo 'source <(reactor completion zsh)' >> ~/.zshrc
+
+  # Fish
+  reactor completion fish | source
+  
+  # To load completions permanently:
+  reactor completion fish > ~/.config/fish/completions/reactor.fish`,
+		Args:                  cobra.ExactArgs(1),
+		ValidArgs:             []string{"bash", "zsh", "fish"},
+		RunE:                  completionHandler,
+		DisableFlagsInUseLine: true,
+	}
 	return cmd
 }
 
@@ -224,6 +316,7 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 	account, _ := cmd.Flags().GetString("account")
 	image, _ := cmd.Flags().GetString("image")
 	danger, _ := cmd.Flags().GetBool("danger")
+	discoveryMode, _ := cmd.Flags().GetBool("discovery-mode")
 
 	// Load and validate configuration
 	configService := config.NewService()
@@ -246,7 +339,7 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 
 	// Initialize state service for directory validation
 	stateService := core.NewStateService(resolved)
-	
+
 	// Validate that required directories exist
 	if err := stateService.ValidateDirectories(); err != nil {
 		return fmt.Errorf("state validation failed: %w\nHint: Run 'reactor config init' to create required directories", err)
@@ -263,21 +356,27 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
 		}
 	}()
-	
+
 	// Check Docker daemon health
 	if err := dockerService.CheckHealth(ctx); err != nil {
 		return fmt.Errorf("docker daemon not available: %w", err)
 	}
 
 	// Generate mount specifications and create container blueprint
-	mounts := stateService.GetMounts()
-	blueprint := core.NewContainerBlueprint(resolved, mounts)
+	var mounts []core.MountSpec
+	if !discoveryMode {
+		mounts = stateService.GetMounts()
+	}
+	blueprint := core.NewContainerBlueprint(resolved, mounts, discoveryMode)
 	containerSpec := blueprint.ToContainerSpec()
 
 	// Enhanced verbose output showing container naming and discovery
 	if verbose {
 		fmt.Printf("[INFO] Project: %s (%s)\n", filepath.Base(resolved.ProjectRoot), resolved.ProjectRoot)
 		fmt.Printf("[INFO] Container name: %s\n", containerSpec.Name)
+		if discoveryMode {
+			fmt.Printf("[INFO] Discovery mode: no mounts will be created\n")
+		}
 	}
 
 	// Check for existing container first for enhanced verbose feedback
@@ -295,8 +394,18 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Provision container using recovery strategy
-	containerInfo, err := dockerService.ProvisionContainer(ctx, containerSpec)
+	// Provision container using recovery strategy (with cleanup for discovery mode)
+	var containerInfo docker.ContainerInfo
+	if discoveryMode {
+		// In discovery mode, check if we need to clean up existing container
+		existingContainer, checkErr := dockerService.ContainerExists(ctx, containerSpec.Name)
+		if checkErr == nil && existingContainer.Status != docker.StatusNotFound {
+			fmt.Printf("Discovery mode: removing existing container for clean environment\n")
+		}
+		containerInfo, err = dockerService.ProvisionContainerWithCleanup(ctx, containerSpec, true)
+	} else {
+		containerInfo, err = dockerService.ProvisionContainer(ctx, containerSpec)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to provision container: %w", err)
 	}
@@ -313,7 +422,7 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Printf("Attaching to container session...\n")
 	}
-	
+
 	if err := dockerService.AttachInteractiveSession(ctx, containerInfo.ID); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}
@@ -333,12 +442,66 @@ func diffCmdHandler(cmd *cobra.Command, args []string) error {
 
 	// Load configuration to validate project setup
 	configService := config.NewService()
-	_, err := configService.LoadConfiguration("", "", "", false)
+	resolved, err := configService.LoadConfiguration("", "", "", false)
 	if err != nil {
 		return err
 	}
 
-	return fmt.Errorf("container diff not implemented yet")
+	// Initialize Docker service
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	// Determine container name to diff
+	var containerName string
+	if len(args) > 0 {
+		// User provided specific container name
+		containerName = args[0]
+	} else {
+		// Default to discovery container for current project
+		containerName = core.GenerateDiscoveryContainerName(resolved.Account, resolved.ProjectRoot, resolved.ProjectHash)
+	}
+
+	// Check if container exists
+	containerInfo, err := dockerService.ContainerExists(ctx, containerName)
+	if err != nil {
+		return fmt.Errorf("failed to check container existence: %w", err)
+	}
+
+	if containerInfo.Status == docker.StatusNotFound {
+		return fmt.Errorf("container %s not found. Run discovery mode first: reactor run --discovery-mode", containerName)
+	}
+
+	// Get container diff
+	changes, err := dockerService.ContainerDiff(ctx, containerInfo.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get container diff: %w", err)
+	}
+
+	// Display changes
+	if len(changes) == 0 {
+		fmt.Println("No changes detected in container filesystem.")
+		return nil
+	}
+
+	fmt.Printf("Container filesystem changes for %s:\n", containerName)
+	for _, change := range changes {
+		fmt.Printf("%s %s\n", change.Kind, change.Path)
+	}
+
+	return nil
 }
 
 func accountsListHandler(cmd *cobra.Command, args []string) error {
@@ -352,7 +515,7 @@ func accountsShowHandler(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("Current account: %s\n", value)
 	return nil
 }
@@ -360,11 +523,11 @@ func accountsShowHandler(cmd *cobra.Command, args []string) error {
 func accountsSetHandler(cmd *cobra.Command, args []string) error {
 	account := args[0]
 	configService := config.NewService()
-	
+
 	if err := configService.SetConfigValue("account", account); err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("Account set to: %s\n", account)
 	return nil
 }
@@ -377,12 +540,12 @@ func configShowHandler(cmd *cobra.Command, args []string) error {
 func configGetHandler(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	configService := config.NewService()
-	
+
 	value, err := configService.GetConfigValue(key)
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("%v\n", value)
 	return nil
 }
@@ -390,12 +553,12 @@ func configGetHandler(cmd *cobra.Command, args []string) error {
 func configSetHandler(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
-	
+
 	configService := config.NewService()
 	if err := configService.SetConfigValue(key, value); err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("Set %s = %s\n", key, value)
 	return nil
 }
@@ -414,6 +577,21 @@ func versionHandler(cmd *cobra.Command, args []string) {
 	fmt.Printf("reactor version %s\n", Version)
 	fmt.Printf("Git commit: %s\n", GitCommit)
 	fmt.Printf("Build date: %s\n", BuildDate)
+}
+
+func completionHandler(cmd *cobra.Command, args []string) error {
+	shell := args[0]
+
+	switch shell {
+	case "bash":
+		return cmd.Root().GenBashCompletion(os.Stdout)
+	case "zsh":
+		return cmd.Root().GenZshCompletion(os.Stdout)
+	case "fish":
+		return cmd.Root().GenFishCompletion(os.Stdout, true)
+	default:
+		return fmt.Errorf("unsupported shell: %s. Supported shells: bash, zsh, fish", shell)
+	}
 }
 
 // Session command handlers
@@ -454,10 +632,10 @@ func sessionsListHandler(cmd *cobra.Command, args []string) error {
 
 	// Display containers in a table format
 	fmt.Printf("%-35s %-8s %-25s %-10s\n", "CONTAINER NAME", "STATUS", "IMAGE", "UPTIME")
-	fmt.Printf("%-35s %-8s %-25s %-10s\n", 
-		strings.Repeat("-", 35), 
-		strings.Repeat("-", 8), 
-		strings.Repeat("-", 25), 
+	fmt.Printf("%-35s %-8s %-25s %-10s\n",
+		strings.Repeat("-", 35),
+		strings.Repeat("-", 8),
+		strings.Repeat("-", 25),
 		strings.Repeat("-", 10))
 
 	for _, container := range containers {

@@ -17,7 +17,7 @@ func ResolveImage(projectImage, providerDefault, cliImage string) string {
 		}
 		return cliImage
 	}
-	
+
 	// Project config takes second precedence
 	if projectImage != "" {
 		if resolved, exists := BuiltinImages[projectImage]; exists {
@@ -25,7 +25,7 @@ func ResolveImage(projectImage, providerDefault, cliImage string) string {
 		}
 		return projectImage
 	}
-	
+
 	// Provider default is the fallback
 	if resolved, exists := BuiltinImages[providerDefault]; exists {
 		return resolved
@@ -42,7 +42,7 @@ func GenerateProjectHash(projectRoot string) string {
 		// Fallback to the original path if absolute path fails
 		absPath = projectRoot
 	}
-	
+
 	hash := sha256.Sum256([]byte(absPath))
 	// Return first 8 characters of hex-encoded hash for readability
 	return fmt.Sprintf("%x", hash[:4])
@@ -54,12 +54,12 @@ func GetReactorHomeDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	
+
 	dirname := ".reactor"
 	if prefix := os.Getenv("REACTOR_ISOLATION_PREFIX"); prefix != "" {
 		dirname = ".reactor-" + prefix
 	}
-	
+
 	return filepath.Join(homeDir, dirname), nil
 }
 

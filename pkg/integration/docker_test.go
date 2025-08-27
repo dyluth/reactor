@@ -23,7 +23,7 @@ func TestDockerIntegration(t *testing.T) {
 		// This should pass if Docker is running
 		cmd := exec.Command(reactorBinary, "sessions", "list")
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX=test-docker-"+randomString(8))
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("sessions list failed when Docker should be available: %v, output: %s", err, string(output))
@@ -37,11 +37,11 @@ func TestDockerIntegration(t *testing.T) {
 
 	t.Run("container discovery patterns", func(t *testing.T) {
 		isolationPrefix := "test-discovery-" + randomString(8)
-		
+
 		// Test that the container discovery recognizes the correct naming patterns
 		cmd := exec.Command(reactorBinary, "sessions", "list")
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("sessions list failed: %v, output: %s", err, string(output))
@@ -67,7 +67,7 @@ func TestSessionsListOutput(t *testing.T) {
 	t.Run("sessions list table format", func(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "sessions", "list")
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("sessions list failed: %v, output: %s", err, string(output))
@@ -90,7 +90,7 @@ func TestSessionsListOutput(t *testing.T) {
 	t.Run("sessions attach help", func(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "sessions", "attach", "--help")
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("sessions attach --help failed: %v, output: %s", err, string(output))
@@ -118,8 +118,8 @@ func TestContainerNameSanitization(t *testing.T) {
 	reactorBinary := buildReactorBinary(t)
 
 	testCases := []struct {
-		projectName     string
-		shouldContain   []string
+		projectName      string
+		shouldContain    []string
 		shouldNotContain []string
 	}{
 		{
@@ -145,7 +145,7 @@ func TestContainerNameSanitization(t *testing.T) {
 			cmd := exec.Command(reactorBinary, "config", "init")
 			cmd.Dir = tempDir
 			cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-			
+
 			_, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("config init failed: %v", err)
@@ -155,7 +155,7 @@ func TestContainerNameSanitization(t *testing.T) {
 			cmd = exec.Command(reactorBinary, "config", "show")
 			cmd.Dir = tempDir
 			cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-			
+
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("config show failed: %v", err)
@@ -164,14 +164,14 @@ func TestContainerNameSanitization(t *testing.T) {
 			outputStr := string(output)
 			for _, should := range tc.shouldContain {
 				if !strings.Contains(outputStr, should) {
-					t.Errorf("Expected config output to contain '%s' for project '%s' but got: %s", 
+					t.Errorf("Expected config output to contain '%s' for project '%s' but got: %s",
 						should, tc.projectName, outputStr)
 				}
 			}
 
 			for _, shouldNot := range tc.shouldNotContain {
 				if strings.Contains(outputStr, shouldNot) {
-					t.Errorf("Expected config output to NOT contain '%s' for project '%s' but got: %s", 
+					t.Errorf("Expected config output to NOT contain '%s' for project '%s' but got: %s",
 						shouldNot, tc.projectName, outputStr)
 				}
 			}
@@ -186,7 +186,7 @@ func TestErrorHandling(t *testing.T) {
 	t.Run("sessions attach non-existent container", func(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "sessions", "attach", "non-existent-container")
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX=test-errors-"+randomString(8))
-		
+
 		output, err := cmd.CombinedOutput()
 		// This should fail
 		if err == nil {
@@ -202,17 +202,17 @@ func TestErrorHandling(t *testing.T) {
 
 	t.Run("config operations in non-initialized directory", func(t *testing.T) {
 		tempDir := createTempDir(t, "non-initialized")
-		
+
 		// Try to get config without initializing
 		cmd := exec.Command(reactorBinary, "config", "get", "provider")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX=test-errors-"+randomString(8))
-		
+
 		output, err := cmd.CombinedOutput()
 		// This might fail or return default values - either is acceptable
 		// The important thing is that it doesn't crash
 		outputStr := string(output)
-		
+
 		// Should either succeed with default or fail gracefully
 		if err != nil && !strings.Contains(outputStr, "not found") && !strings.Contains(outputStr, "default") {
 			t.Errorf("Expected graceful handling of non-initialized config but got: %s", outputStr)
@@ -232,7 +232,7 @@ func TestIsolationPrefix(t *testing.T) {
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-		
+
 		_, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config init with isolation failed: %v", err)
@@ -242,7 +242,7 @@ func TestIsolationPrefix(t *testing.T) {
 		cmd = exec.Command(reactorBinary, "config", "show")
 		cmd.Dir = tempDir
 		cmd.Env = append(cmd.Env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-		
+
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("config show with isolation failed: %v", err)
@@ -251,14 +251,14 @@ func TestIsolationPrefix(t *testing.T) {
 		outputStr := string(output)
 		// Should show the isolation prefix in paths and config
 		if !strings.Contains(outputStr, isolationPrefix) {
-			t.Errorf("Expected isolation prefix '%s' to appear in config output but got: %s", 
+			t.Errorf("Expected isolation prefix '%s' to appear in config output but got: %s",
 				isolationPrefix, outputStr)
 		}
 	})
 
 	t.Run("different isolation prefixes create separate configs", func(t *testing.T) {
 		tempDir := createTempDir(t, "multi-isolation-test")
-		
+
 		prefix1 := "test-multi1-" + randomString(8)
 		prefix2 := "test-multi2-" + randomString(8)
 
@@ -328,13 +328,13 @@ func TestIsolationPrefix(t *testing.T) {
 func isDockerAvailable() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return false
 	}
-	defer cli.Close()
-	
+	defer func() { _ = cli.Close() }()
+
 	_, err = cli.Ping(ctx)
 	return err == nil
 }
