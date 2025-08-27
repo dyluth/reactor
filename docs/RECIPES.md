@@ -48,14 +48,14 @@ echo "account: work" >> .reactor.conf
 
 ## Advanced Use Cases
 
-### Docker-in-Docker Development
+### Host Docker Access
 ```bash
 # WARNING: Security risk - only use with trusted images
 reactor run --docker-host-integration
 
-# Inside container, you now have full Docker access
+# Inside container, you now have access to host Docker daemon
 docker ps                     # See host containers
-docker run hello-world        # Create new containers
+docker run hello-world        # Create containers on host
 ```
 
 ### Custom Image with Specific Tools

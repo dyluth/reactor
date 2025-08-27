@@ -19,7 +19,7 @@ Phase 4 completes Reactor's evolution into a production-ready CLI tool by implem
 
 * **Secondary Persona: The Tool Onboarder ("Ops")**: A developer or DevOps engineer responsible for evaluating and integrating new AI tools into their team's workflow. They need discovery mode to understand an AI agent's configuration footprint and create standardized environments.
 
-* **Tertiary Persona: The Docker Expert ("Docker-Dev")**: An advanced developer with complex Docker-in-Docker workflows who needs Docker host integration to run container orchestration tools from within Reactor containers.
+* **Tertiary Persona: The Docker Expert ("Docker-Dev")**: An advanced developer who needs Docker host access to run container orchestration tools from within Reactor containers.
 
 ### **1.3. Problem statement & user stories**
 
