@@ -11,20 +11,27 @@ import (
 	"github.com/anthropics/reactor/pkg/docker"
 )
 
+// PortMapping represents a port forwarding configuration
+type PortMapping struct {
+	HostPort      int
+	ContainerPort int
+}
+
 // ContainerBlueprint defines the complete specification for creating a container
 type ContainerBlueprint struct {
-	Name        string   // Deterministic container name with isolation support
-	Image       string   // Resolved container image
-	Command     []string // Command to run in container
-	WorkDir     string   // Working directory in container
-	User        string   // Container user (e.g., "claude")
-	Environment []string // Environment variables
-	Mounts      []string // Volume mounts in "source:target:type" format
-	NetworkMode string   // Network configuration
+	Name         string        // Deterministic container name with isolation support
+	Image        string        // Resolved container image
+	Command      []string      // Command to run in container
+	WorkDir      string        // Working directory in container
+	User         string        // Container user (e.g., "claude")
+	Environment  []string      // Environment variables
+	Mounts       []string      // Volume mounts in "source:target:type" format
+	PortMappings []PortMapping // Port forwarding configurations
+	NetworkMode  string        // Network configuration
 }
 
 // NewContainerBlueprint creates a container blueprint from resolved configuration and mounts
-func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, isDiscovery bool) *ContainerBlueprint {
+func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, isDiscovery bool, dockerHostIntegration bool, portMappings []PortMapping) *ContainerBlueprint {
 	// Generate appropriate container name based on mode
 	var containerName string
 	if isDiscovery {
@@ -42,29 +49,51 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, 
 		}
 	}
 
+	// Add Docker socket mount if host integration is enabled
+	if dockerHostIntegration {
+		dockerMounts = append(dockerMounts, "/var/run/docker.sock:/var/run/docker.sock:bind")
+	}
+
+	// Set up environment variables
+	environment := []string{}
+	if dockerHostIntegration {
+		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
+	}
+
 	return &ContainerBlueprint{
-		Name:        containerName,
-		Image:       resolved.Image,
-		Command:     []string{"/bin/bash"}, // Default interactive shell
-		WorkDir:     "/workspace",          // Default to mounted project directory
-		User:        "claude",              // Default container user
-		Environment: []string{},            // No special environment variables by default
-		Mounts:      dockerMounts,
-		NetworkMode: "bridge", // Default Docker network
+		Name:         containerName,
+		Image:        resolved.Image,
+		Command:      []string{"/bin/bash"}, // Default interactive shell
+		WorkDir:      "/workspace",          // Default to mounted project directory
+		User:         "claude",              // Default container user
+		Environment:  environment,
+		Mounts:       dockerMounts,
+		PortMappings: portMappings,
+		NetworkMode:  "bridge", // Default Docker network
 	}
 }
 
 // ToContainerSpec converts the blueprint to a Docker ContainerSpec
 func (b *ContainerBlueprint) ToContainerSpec() *docker.ContainerSpec {
+	// Convert port mappings to docker format
+	dockerPortMappings := make([]docker.PortMapping, len(b.PortMappings))
+	for i, pm := range b.PortMappings {
+		dockerPortMappings[i] = docker.PortMapping{
+			HostPort:      pm.HostPort,
+			ContainerPort: pm.ContainerPort,
+		}
+	}
+	
 	return &docker.ContainerSpec{
-		Name:        b.Name,
-		Image:       b.Image,
-		Command:     b.Command,
-		WorkDir:     b.WorkDir,
-		User:        b.User,
-		Environment: b.Environment,
-		Mounts:      b.Mounts,
-		NetworkMode: b.NetworkMode,
+		Name:         b.Name,
+		Image:        b.Image,
+		Command:      b.Command,
+		WorkDir:      b.WorkDir,
+		User:         b.User,
+		Environment:  b.Environment,
+		Mounts:       b.Mounts,
+		PortMappings: dockerPortMappings,
+		NetworkMode:  b.NetworkMode,
 	}
 }
 

@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 // Service manages Docker daemon interactions
@@ -118,19 +120,42 @@ func (s *Service) CreateContainer(ctx context.Context, spec *ContainerSpec) (Con
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	// Create container configuration
-	containerConfig := &container.Config{
-		Image:      spec.Image,
-		Cmd:        spec.Command,
-		WorkingDir: spec.WorkDir,
-		User:       spec.User,
-		Env:        spec.Environment,
+	// Create port bindings for container and host configuration
+	exposedPorts := nat.PortSet{}
+	portBindings := nat.PortMap{}
+	
+	for _, pm := range spec.PortMappings {
+		hostPortStr := strconv.Itoa(pm.HostPort)
+		
+		containerPort, err := nat.NewPort("tcp", strconv.Itoa(pm.ContainerPort))
+		if err != nil {
+			return ContainerInfo{}, fmt.Errorf("invalid container port %d: %w", pm.ContainerPort, err)
+		}
+		
+		exposedPorts[containerPort] = struct{}{}
+		portBindings[containerPort] = []nat.PortBinding{
+			{
+				HostIP:   "",
+				HostPort: hostPortStr,
+			},
+		}
 	}
 
-	// Create host configuration (mounts, network, etc.)
+	// Create container configuration
+	containerConfig := &container.Config{
+		Image:        spec.Image,
+		Cmd:          spec.Command,
+		WorkingDir:   spec.WorkDir,
+		User:         spec.User,
+		Env:          spec.Environment,
+		ExposedPorts: exposedPorts,
+	}
+
+	// Create host configuration (mounts, network, ports, etc.)
 	hostConfig := &container.HostConfig{
-		Binds:       spec.Mounts,
-		NetworkMode: container.NetworkMode(spec.NetworkMode),
+		Binds:        spec.Mounts,
+		NetworkMode:  container.NetworkMode(spec.NetworkMode),
+		PortBindings: portBindings,
 	}
 
 	// Create the container
@@ -189,15 +214,22 @@ func (s *Service) RemoveContainer(ctx context.Context, containerID string) error
 }
 
 // ContainerSpec defines the specification for creating a container
+// PortMapping represents a port forwarding configuration
+type PortMapping struct {
+	HostPort      int
+	ContainerPort int
+}
+
 type ContainerSpec struct {
-	Name        string
-	Image       string
-	Command     []string
-	WorkDir     string
-	User        string
-	Environment []string
-	Mounts      []string // In "source:target:mode" format
-	NetworkMode string
+	Name         string
+	Image        string
+	Command      []string
+	WorkDir      string
+	User         string
+	Environment  []string
+	Mounts       []string      // In "source:target:mode" format
+	PortMappings []PortMapping // Port forwarding configurations
+	NetworkMode  string
 }
 
 // ListReactorContainers returns all containers that match the reactor naming pattern

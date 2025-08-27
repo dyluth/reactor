@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropics/reactor/pkg/config"
 	"github.com/anthropics/reactor/pkg/core"
@@ -19,6 +22,76 @@ var (
 	GitCommit = "unknown"
 	BuildDate = "unknown"
 )
+
+// PortMapping represents a port forwarding configuration
+type PortMapping struct {
+	HostPort      int
+	ContainerPort int
+}
+
+// parsePortMappings parses and validates port mapping strings in the format "host:container"
+func parsePortMappings(portStrings []string) ([]PortMapping, error) {
+	var mappings []PortMapping
+	
+	for _, portStr := range portStrings {
+		parts := strings.Split(portStr, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid port mapping format '%s': expected 'host:container'", portStr)
+		}
+		
+		hostPort, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid host port '%s': must be a number", parts[0])
+		}
+		
+		containerPort, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid container port '%s': must be a number", parts[1])
+		}
+		
+		// Validate port ranges
+		if hostPort < 1 || hostPort > 65535 {
+			return nil, fmt.Errorf("host port %d is out of valid range (1-65535)", hostPort)
+		}
+		if containerPort < 1 || containerPort > 65535 {
+			return nil, fmt.Errorf("container port %d is out of valid range (1-65535)", containerPort)
+		}
+		
+		mappings = append(mappings, PortMapping{
+			HostPort:      hostPort,
+			ContainerPort: containerPort,
+		})
+	}
+	
+	return mappings, nil
+}
+
+// checkPortConflicts checks if any of the host ports are already in use
+func checkPortConflicts(mappings []PortMapping) []int {
+	var conflictPorts []int
+	
+	for _, pm := range mappings {
+		// Try to listen on the host port briefly to check if it's available
+		addr := fmt.Sprintf(":%d", pm.HostPort)
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			// Port is open (something is listening)
+			_ = conn.Close()
+			conflictPorts = append(conflictPorts, pm.HostPort)
+		} else {
+			// Try to bind to the port to see if it's available
+			listener, err := net.Listen("tcp", addr)
+			if err != nil {
+				// Port is likely in use or restricted
+				conflictPorts = append(conflictPorts, pm.HostPort)
+			} else {
+				_ = listener.Close()
+			}
+		}
+	}
+	
+	return conflictPorts
+}
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
@@ -82,6 +155,8 @@ For more details, see the full documentation.`,
 	cmd.Flags().String("image", "", "Container image (base, python, go, or custom URL)")
 	cmd.Flags().Bool("danger", false, "Enable dangerous permissions for AI agent")
 	cmd.Flags().Bool("discovery-mode", false, "Run with no mounts for configuration discovery")
+	cmd.Flags().Bool("docker-host-integration", false, "Mount host Docker socket (DANGEROUS - use only with trusted images)")
+	cmd.Flags().StringSlice("port", []string{}, "Port forwarding (host:container), can be used multiple times")
 
 	return cmd
 }
@@ -317,6 +392,44 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 	image, _ := cmd.Flags().GetString("image")
 	danger, _ := cmd.Flags().GetBool("danger")
 	discoveryMode, _ := cmd.Flags().GetBool("discovery-mode")
+	dockerHostIntegration, _ := cmd.Flags().GetBool("docker-host-integration")
+	portMappings, _ := cmd.Flags().GetStringSlice("port")
+
+	// Validate flag combinations
+	if discoveryMode {
+		if len(portMappings) > 0 {
+			return fmt.Errorf("--discovery-mode cannot be used with port forwarding")
+		}
+		if dockerHostIntegration {
+			return fmt.Errorf("--discovery-mode cannot be used with --docker-host-integration")
+		}
+	}
+
+	// Parse and validate port mappings
+	parsedPorts, err := parsePortMappings(portMappings)
+	if err != nil {
+		return fmt.Errorf("port mapping error: %w", err)
+	}
+
+	// Check for port conflicts
+	if len(parsedPorts) > 0 {
+		conflictPorts := checkPortConflicts(parsedPorts)
+		if len(conflictPorts) > 0 {
+			fmt.Printf("⚠️  WARNING: The following host ports may already be in use:\n")
+			for _, port := range conflictPorts {
+				fmt.Printf("   Port %d - containers may fail to start or port forwarding may not work\n", port)
+			}
+			fmt.Printf("   Consider using different host ports or stopping conflicting services.\n\n")
+		}
+	}
+
+	// Security warning for Docker host integration
+	if dockerHostIntegration {
+		fmt.Printf("⚠️  WARNING: Docker host integration enabled!\n")
+		fmt.Printf("   This gives the container full access to your host Docker daemon.\n")
+		fmt.Printf("   Only use this flag with trusted images and AI agents.\n")
+		fmt.Printf("   The container can create, modify, and delete other containers.\n\n")
+	}
 
 	// Load and validate configuration
 	configService := config.NewService()
@@ -367,7 +480,16 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 	if !discoveryMode {
 		mounts = stateService.GetMounts()
 	}
-	blueprint := core.NewContainerBlueprint(resolved, mounts, discoveryMode)
+	// Convert port mappings to core format
+	corePortMappings := make([]core.PortMapping, len(parsedPorts))
+	for i, pm := range parsedPorts {
+		corePortMappings[i] = core.PortMapping{
+			HostPort:      pm.HostPort,
+			ContainerPort: pm.ContainerPort,
+		}
+	}
+	
+	blueprint := core.NewContainerBlueprint(resolved, mounts, discoveryMode, dockerHostIntegration, corePortMappings)
 	containerSpec := blueprint.ToContainerSpec()
 
 	// Enhanced verbose output showing container naming and discovery
@@ -376,6 +498,19 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("[INFO] Container name: %s\n", containerSpec.Name)
 		if discoveryMode {
 			fmt.Printf("[INFO] Discovery mode: no mounts will be created\n")
+		}
+		if dockerHostIntegration {
+			fmt.Printf("[INFO] Docker host integration: Docker socket will be mounted\n")
+		}
+		if len(parsedPorts) > 0 {
+			fmt.Printf("[INFO] Port forwarding: ")
+			for i, pm := range parsedPorts {
+				if i > 0 {
+					fmt.Printf(", ")
+				}
+				fmt.Printf("%d->%d", pm.HostPort, pm.ContainerPort)
+			}
+			fmt.Printf("\n")
 		}
 	}
 
