@@ -178,10 +178,12 @@ N/A. This is a CLI tool.
 **Phase 3: Interactive Session**
 *   \[ \] PR 3.1: Implement the `session` layer to handle TTY attachment to the running container's process.
 
-**Phase 4: Advanced Features & Docs**
-*   \[ \] PR 4.1: Implement the `--discovery-mode` flag and the `reactor diff` command.
-*   \[ \] PR 4.2: Implement the `--docker-host-integration` flag.
-*   \[ \] PR 4.3: Create user-facing documentation for all features.
+**Phase 4: Core Features & Developer Experience**
+*   [ ] PR 4.1: Add shell completions (Bash, Zsh, Fish) for all commands and flags.
+*   [ ] PR 4.2: Implement `--discovery-mode` (with no mounts) and the `reactor diff` command.
+*   [ ] PR 4.3: Implement the `--docker-host-integration` flag with clear security warnings.
+*   [ ] PR 4.4: Add support for multiple port forwards via a repeatable `-p` flag (e.g., `reactor run -p 8080:8080 -p 3000:3000`).
+*   [ ] PR 4.5: Create comprehensive user documentation (guides, core concepts, and troubleshooting FAQ).
 
 **Phase 5: Auto-Installation & Enhanced UX**
 *   \[ \] PR 5.1: Implement automatic AI agent installation in containers that don't have the specified agent pre-installed.
