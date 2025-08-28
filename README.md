@@ -48,13 +48,14 @@ Each account gets separate configuration storage:
 # .reactor.conf
 provider: claude    # or gemini, custom
 account: personal   # or work, team, etc.
-image: python       # base, python, go, or custom
+image: python       # base, python, node, go, or custom
 ```
 
 ### Built-in Images
-- **base**: Core tools + Claude & Gemini CLI
-- **python**: Base + Python development environment
-- **go**: Base + Go development environment
+- **base**: Core tools + Claude & Gemini CLI (`ghcr.io/dyluth/reactor/base`)
+- **python**: Base + Python development environment (`ghcr.io/dyluth/reactor/python`)
+- **node**: Base + Node.js development environment (`ghcr.io/dyluth/reactor/node`)
+- **go**: Base + Go development environment (`ghcr.io/dyluth/reactor/go`)
 - **custom**: Use any Docker image
 
 ### Container Recovery

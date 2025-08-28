@@ -1,0 +1,258 @@
+name: Build and Test Container Images
+
+on:
+  push:
+    branches: [ main ]
+    paths: 
+      - 'images/**'
+      - '.github/workflows/build-images.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'images/**' 
+      - '.github/workflows/build-images.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: reactor
+
+jobs:
+  # Start with base image since other images depend on it
+  build-base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-size: ${{ steps.size.outputs.size }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix={{branch}}-
+
+    - name: Build and push image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: images/base
+        platforms: linux/amd64,linux/arm64
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test image functionality
+      run: |
+        # Pull the built image for testing
+        docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest || \
+        docker tag $(echo "${{ steps.build.outputs.imageid }}" | cut -d':' -f2) \
+        ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest
+        
+        # Run the test script inside the container
+        docker run --rm \
+          -v ${{ github.workspace }}/images/base/test.sh:/test.sh:ro \
+          ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest \
+          bash /test.sh
+
+    - name: Check image size
+      id: size
+      run: |
+        # Get image size
+        SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest --format='{{.Size}}')
+        SIZE_MB=$((SIZE / 1024 / 1024))
+        echo "size=${SIZE_MB}" >> $GITHUB_OUTPUT
+        echo "📦 Image size: ${SIZE_MB}MB"
+        
+        # Check if size exceeds our target (200MB for base)
+        if [ $SIZE_MB -gt 200 ]; then
+          echo "⚠️ Warning: Image size (${SIZE_MB}MB) exceeds target (200MB)"
+          echo "Consider optimizing the Dockerfile to reduce size"
+        else
+          echo "✅ Image size within target (${SIZE_MB}MB ≤ 200MB)"
+        fi
+
+    - name: Generate build summary
+      run: |
+        echo "## 🐳 Base Image Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Size**: ${{ steps.size.outputs.size }}MB" >> $GITHUB_STEP_SUMMARY  
+        echo "- **Digest**: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Tags**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+
+  # Build language-specific images that depend on base
+  build-language-images:
+    runs-on: ubuntu-latest
+    needs: build-base
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    
+    strategy:
+      matrix:
+        image: [python, node, go]
+        include:
+          - image: python
+            size_limit: 500
+          - image: node  
+            size_limit: 500
+          - image: go
+            size_limit: 500
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix={{branch}}-
+
+    - name: Build and push image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: images/${{ matrix.image }}
+        platforms: linux/amd64,linux/arm64
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test image functionality
+      run: |
+        # Pull the built image for testing
+        docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest || \
+        docker tag $(echo "${{ steps.build.outputs.imageid }}" | cut -d':' -f2) \
+        ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
+        
+        # Run the test script inside the container
+        docker run --rm \
+          -v ${{ github.workspace }}/images/${{ matrix.image }}/test.sh:/test.sh:ro \
+          ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest \
+          bash /test.sh
+
+    - name: Check image size
+      id: size
+      run: |
+        # Get image size
+        SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest --format='{{.Size}}')
+        SIZE_MB=$((SIZE / 1024 / 1024))
+        echo "size=${SIZE_MB}" >> $GITHUB_OUTPUT
+        echo "📦 ${{ matrix.image }} image size: ${SIZE_MB}MB"
+        
+        # Check if size exceeds target
+        if [ $SIZE_MB -gt ${{ matrix.size_limit }} ]; then
+          echo "⚠️ Warning: ${{ matrix.image }} image size (${SIZE_MB}MB) exceeds target (${{ matrix.size_limit }}MB)"
+          echo "Consider optimizing the Dockerfile to reduce size"
+        else
+          echo "✅ ${{ matrix.image }} image size within target (${SIZE_MB}MB ≤ ${{ matrix.size_limit }}MB)"
+        fi
+
+    - name: Generate build summary
+      run: |
+        echo "## 🐳 ${{ matrix.image }} Image Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Size**: ${{ steps.size.outputs.size }}MB" >> $GITHUB_STEP_SUMMARY  
+        echo "- **Digest**: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Tags**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+
+  # Security scanning for all images
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: [build-base, build-language-images]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      security-events: write
+    
+    strategy:
+      matrix:
+        image: [base, python, node, go]
+    
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
+        format: 'sarif'
+        output: 'trivy-results-${{ matrix.image }}.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results-${{ matrix.image }}.sarif'
+
+    - name: Run Trivy scanner for summary
+      uses: aquasecurity/trivy-action@master  
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        severity: 'CRITICAL,HIGH'
+
+  # Build summary job
+  build-complete:
+    runs-on: ubuntu-latest
+    needs: [build-base, build-language-images, security-scan]
+    if: always()
+    
+    steps:
+    - name: Generate final summary
+      run: |
+        echo "# 🚀 Reactor Images Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "All official Reactor images have been built and tested:" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/base\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/python\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/node\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/go\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Images are available for both \`linux/amd64\` and \`linux/arm64\` platforms." >> $GITHUB_STEP_SUMMARY

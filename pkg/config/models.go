@@ -42,7 +42,7 @@ type ResolvedConfig struct {
 var BuiltinProviders = map[string]ProviderInfo{
 	"claude": {
 		Name:         "claude",
-		DefaultImage: "ghcr.io/dyluth/claude-reactor-go",
+		DefaultImage: "ghcr.io/dyluth/reactor/base:latest",
 		Mounts: []MountPoint{
 			{Source: "claude", Target: "/home/claude/.claude"},
 			// Additional mounts can be added if claude stores files elsewhere
@@ -50,7 +50,7 @@ var BuiltinProviders = map[string]ProviderInfo{
 	},
 	"gemini": {
 		Name:         "gemini",
-		DefaultImage: "ghcr.io/dyluth/claude-reactor-go",
+		DefaultImage: "ghcr.io/dyluth/reactor/base:latest",
 		Mounts: []MountPoint{
 			{Source: "gemini", Target: "/home/claude/.gemini"},
 			// Additional mounts can be added if gemini stores files elsewhere
@@ -61,9 +61,10 @@ var BuiltinProviders = map[string]ProviderInfo{
 
 // Built-in image mappings for convenience
 var BuiltinImages = map[string]string{
-	"base":   "ghcr.io/dyluth/claude-reactor-go",
-	"python": "ghcr.io/dyluth/claude-reactor-go",
-	"go":     "ghcr.io/dyluth/claude-reactor-go",
+	"base":   "ghcr.io/dyluth/reactor/base:latest",
+	"python": "ghcr.io/dyluth/reactor/python:latest",
+	"node":   "ghcr.io/dyluth/reactor/node:latest",
+	"go":     "ghcr.io/dyluth/reactor/go:latest",
 }
 
 // GetSystemUsername returns the current system username as default account

@@ -86,11 +86,11 @@ reactor run --image base
 which claude  # or which gemini
 
 # Check image contents
-docker run --rm -it ghcr.io/dyluth/claude-reactor-go:latest bash
+docker run --rm -it ghcr.io/dyluth/reactor/base:latest bash
 ```
 
 **Solutions**:
-- Use correct built-in image (`base`, `python`, `go`)
+- Use correct built-in image (`base`, `python`, `node`, `go`)
 - For custom images, ensure AI tools are pre-installed
 - Check tool installation in container
 
@@ -148,7 +148,7 @@ reactor sessions list
 **Solutions**:
 - First run always slower (image pull)
 - Use `--verbose` flag to see what's happening
-- Pre-pull images: `docker pull ghcr.io/dyluth/claude-reactor-go:latest`
+- Pre-pull images: `docker pull ghcr.io/dyluth/reactor/base:latest`
 
 ### High Resource Usage
 
