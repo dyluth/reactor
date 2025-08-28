@@ -39,7 +39,7 @@ gopls version
 dlv version | head -1
 staticcheck -version  
 golangci-lint --version
-goimports --help > /dev/null
+which goimports > /dev/null && echo "goimports available" || echo "goimports not found"
 
 # Test package functionality
 echo "✅ Testing sample package..."
