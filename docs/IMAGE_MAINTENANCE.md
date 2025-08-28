@@ -76,13 +76,43 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --push images/base
 ```
 
-## Automated Maintenance
+## Automated Production Builds
 
-### Build Pipeline
-- **Trigger**: Changes to `images/**` or workflow files
-- **Platforms**: linux/amd64, linux/arm64
+### Official Images via GitHub Actions
+
+**All official Reactor images are built automatically using GitHub Actions:**
+
+- **Official Images**: `ghcr.io/dyluth/reactor/{base,python,node,go}:latest`
+- **Workflow File**: `.github/workflows/build-images.yml`
 - **Registry**: GitHub Container Registry (GHCR)
+- **Platforms**: linux/amd64, linux/arm64
+
+### Build Pipeline Details
+- **Trigger**: Changes to `images/**` or workflow files, or manual dispatch
+- **Process**: Build base image first, then language-specific images in parallel
+- **Testing**: Each image runs its test suite during build
 - **Security**: Trivy vulnerability scanning on every build
+- **Publishing**: Automatic push to GHCR on successful builds
+- **Artifacts**: SARIF security reports uploaded to GitHub Security tab
+
+### Workflow Setup
+
+The GitHub Actions workflow is **already configured** in the repository. No setup required for basic usage, but here's what it does:
+
+1. **Multi-Architecture Builds**: Uses `docker/build-push-action` with buildx
+2. **Dependency Management**: Base image built first, others depend on it  
+3. **Security Integration**: Trivy scans with GitHub Security tab integration
+4. **Size Monitoring**: Warns if images exceed size targets
+5. **Comprehensive Testing**: Runs test scripts for each image
+
+### GitHub Actions Configuration
+
+The workflow uses these GitHub secrets and settings:
+- **`GITHUB_TOKEN`**: Automatically provided, used for GHCR authentication
+- **Permissions**: `contents: read`, `packages: write`, `security-events: write`
+- **Registry**: `ghcr.io` (GitHub Container Registry)
+
+**No additional setup required** - the workflow is ready to use once the repository has GitHub Actions enabled.
 
 ### Size Monitoring
 - **Base image**: <200MB target

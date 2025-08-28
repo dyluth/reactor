@@ -52,11 +52,15 @@ image: python       # base, python, node, go, or custom
 ```
 
 ### Built-in Images
+
+**Official images (automatically built via GitHub Actions):**
 - **base**: Core tools + Claude & Gemini CLI (`ghcr.io/dyluth/reactor/base`)
 - **python**: Base + Python development environment (`ghcr.io/dyluth/reactor/python`)
 - **node**: Base + Node.js development environment (`ghcr.io/dyluth/reactor/node`)
 - **go**: Base + Go development environment (`ghcr.io/dyluth/reactor/go`)
 - **custom**: Use any Docker image
+
+All official images support both `linux/amd64` and `linux/arm64` architectures and are updated automatically when changes are made to the image definitions.
 
 ### Container Recovery
 - **First run**: ~60-90 seconds (pulls image, creates container)
@@ -150,6 +154,10 @@ docker build -t reactor/go:local images/go
 ## Contributing
 
 See [PROJECT_CHARTER.md](docs/PROJECT_CHARTER.md) for architecture and contribution guidelines.
+
+### Container Images
+- [Image Maintenance Guide](docs/IMAGE_MAINTENANCE.md) - How to maintain and update official images
+- [GitHub Actions Setup](docs/GITHUB_ACTIONS_SETUP.md) - How the automated build system works
 
 ## License
 
