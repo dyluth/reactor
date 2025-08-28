@@ -23,12 +23,12 @@ node /workspace/src/index.js
 
 # Test development tools
 echo "✅ Testing Node.js development tools..."
-npx typescript --version
-npx ts-node --version
-npx eslint --version
-npx prettier --version
-npx jest --version
-npx nodemon --version
+tsc --version
+ts-node --version
+eslint --version
+prettier --version
+jest --version
+nodemon --version
 
 # Test global packages
 echo "✅ Testing global packages..."
@@ -62,16 +62,16 @@ console.log('Available scripts:', Object.keys(pkg.scripts).join(', '));
 echo "✅ Testing TypeScript..."
 cd /workspace
 echo 'console.log("TypeScript test");' > src/test.ts
-npx tsc --noEmit src/test.ts
+tsc --noEmit src/test.ts
 rm src/test.ts
 
 # Test ESLint
 echo "✅ Testing ESLint..."
-npx eslint src/index.js --format=compact
+eslint src/index.js --format=compact
 
 # Test Prettier
 echo "✅ Testing Prettier..."
-npx prettier --check src/index.js
+prettier --check src/index.js
 
 # Test aliases (if running in bash)
 echo "✅ Testing shell configuration..."
