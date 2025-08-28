@@ -115,6 +115,7 @@ reactor sessions clean      # Clean up
 
 ## Development
 
+### Building Reactor CLI
 ```bash
 # Build from source
 git clone https://github.com/anthropics/reactor.git
@@ -126,6 +127,24 @@ make test
 
 # Run linter
 make lint
+```
+
+### Building Container Images
+```bash
+# Build all images locally
+./scripts/build-images.sh
+
+# Build and test all images
+./scripts/build-images.sh --test
+
+# Build with official tags
+./scripts/build-images.sh --official
+
+# Manual builds (from repo root)
+docker build -t reactor/base:local images/base
+docker build -t reactor/python:local images/python
+docker build -t reactor/node:local images/node
+docker build -t reactor/go:local images/go
 ```
 
 ## Contributing

@@ -13,6 +13,69 @@ ghcr.io/dyluth/reactor/base     (foundation)
 └── ghcr.io/dyluth/reactor/go
 ```
 
+## Local Development Commands
+
+### Building Images Locally
+
+```bash
+# From repository root - build all images
+docker build -t reactor/base:local images/base
+docker build -t reactor/python:local images/python  
+docker build -t reactor/node:local images/node
+docker build -t reactor/go:local images/go
+
+# Build single image
+docker build -t reactor/base:local images/base
+
+# Build with official tags (for local testing)
+docker build -t ghcr.io/dyluth/reactor/base:latest images/base
+```
+
+### Testing Images Locally
+
+```bash
+# Test all images
+./images/base/test.sh      # (if run inside base container)
+./images/python/test.sh    # (if run inside python container)
+./images/node/test.sh      # (if run inside node container)  
+./images/go/test.sh        # (if run inside go container)
+
+# Or run tests from outside containers
+docker run --rm -v $(pwd)/images/base/test.sh:/test.sh reactor/base:local bash /test.sh
+docker run --rm -v $(pwd)/images/python/test.sh:/test.sh reactor/python:local bash /test.sh
+docker run --rm -v $(pwd)/images/node/test.sh:/test.sh reactor/node:local bash /test.sh
+docker run --rm -v $(pwd)/images/go/test.sh:/test.sh reactor/go:local bash /test.sh
+```
+
+### Interactive Development
+
+```bash
+# Run interactive shell in any image for debugging
+docker run --rm -it reactor/base:local bash
+docker run --rm -it reactor/python:local bash
+docker run --rm -it reactor/node:local bash
+docker run --rm -it reactor/go:local bash
+
+# Mount local workspace for testing
+docker run --rm -it -v $(pwd):/workspace reactor/python:local bash
+```
+
+### Multi-Architecture Building (Advanced)
+
+```bash
+# Set up buildx for multi-architecture (one-time setup)
+docker buildx create --name multiarch --use
+docker buildx inspect --bootstrap
+
+# Build for multiple architectures
+docker buildx build --platform linux/amd64,linux/arm64 -t reactor/base:multiarch images/base
+
+# Build and push to registry (requires authentication)
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/dyluth/reactor/base:test \
+  --push images/base
+```
+
 ## Automated Maintenance
 
 ### Build Pipeline
@@ -70,15 +133,17 @@ ghcr.io/dyluth/reactor/base     (foundation)
 
 2. **Test Image Functionality**
    ```bash
-   # Build images locally for testing
-   cd images/base && docker build -t test-base .
-   cd ../python && docker build -t test-python .
-   cd ../node && docker build -t test-node .  
-   cd ../go && docker build -t test-go .
+   # Build images locally for testing (from repository root)
+   docker build -t reactor/base:test images/base
+   docker build -t reactor/python:test images/python  
+   docker build -t reactor/node:test images/node
+   docker build -t reactor/go:test images/go
    
    # Run test scripts
-   docker run --rm -v $(pwd)/images/base/test.sh:/test.sh test-base bash /test.sh
-   # Repeat for other images
+   docker run --rm -v $(pwd)/images/base/test.sh:/test.sh reactor/base:test bash /test.sh
+   docker run --rm -v $(pwd)/images/python/test.sh:/test.sh reactor/python:test bash /test.sh
+   docker run --rm -v $(pwd)/images/node/test.sh:/test.sh reactor/node:test bash /test.sh
+   docker run --rm -v $(pwd)/images/go/test.sh:/test.sh reactor/go:test bash /test.sh
    ```
 
 3. **Update Documentation**
