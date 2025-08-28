@@ -1,2 +1,5 @@
 .tmp
 .env
+build*
+tmp*
+.DS_Store

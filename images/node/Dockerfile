@@ -11,11 +11,7 @@ USER root
 # Note: Base image already has Node.js 20.18.0 installed
 # We'll enhance it with development tools and additional utilities
 
-# Install Node.js development tools globally as claude user
-USER claude
-WORKDIR /home/claude
-
-# Install essential Node.js development packages
+# Install essential Node.js development packages (as root to avoid permission issues)
 RUN npm install -g \
     # TypeScript ecosystem
     typescript@5.3.3 \
@@ -34,15 +30,7 @@ RUN npm install -g \
     # Useful utilities
     http-server@14.1.1
 
-# Set up Node.js-specific shell configuration
-RUN echo '# Node.js development aliases' >> /home/claude/.bashrc \
-    && echo 'alias ncu="npm-check-updates"' >> /home/claude/.bashrc \
-    && echo 'alias dev="npm run dev"' >> /home/claude/.bashrc \
-    && echo 'alias build="npm run build"' >> /home/claude/.bashrc \
-    && echo 'alias test="npm test"' >> /home/claude/.bashrc
-
 # Create default Node.js project structure in workspace
-USER root
 RUN mkdir -p /workspace/src /workspace/tests \
     && cat > /workspace/package.json << 'EOF'
 {
@@ -127,12 +115,19 @@ RUN chown -R claude:claude /workspace
 USER claude
 WORKDIR /workspace
 
+# Set up Node.js-specific shell configuration
+RUN echo '# Node.js development aliases' >> /home/claude/.bashrc \
+    && echo 'alias ncu="npm-check-updates"' >> /home/claude/.bashrc \
+    && echo 'alias dev="npm run dev"' >> /home/claude/.bashrc \
+    && echo 'alias build="npm run build"' >> /home/claude/.bashrc \
+    && echo 'alias test="npm test"' >> /home/claude/.bashrc
+
 # Verify Node.js development environment
 RUN node --version \
     && npm --version \
-    && npx typescript --version \
-    && npx eslint --version \
-    && npx prettier --version
+    && tsc --version \
+    && eslint --version \
+    && prettier --version
 
 # Metadata
 LABEL org.opencontainers.image.title="Reactor Node.js"

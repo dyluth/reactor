@@ -10,19 +10,19 @@ USER root
 
 # Install Python 3.11 and development dependencies
 RUN apt-get update && apt-get install -y \
-    # Python 3.11 (latest available in bullseye-backports)
-    python3=3.9.2-3 \
-    python3-pip=20.3.4-4+deb11u* \
-    python3-dev=3.9.2-3 \
-    python3-venv=3.9.2-3 \
+    # Python 3 (latest available)
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
     # Python build dependencies
-    python3-setuptools=52.0.0-4 \
-    python3-wheel=0.34.2-1 \
+    python3-setuptools \
+    python3-wheel \
     # Additional development tools
-    python3-distutils=3.9.2-1 \
+    python3-distutils \
     # Required for some Python packages
-    libffi-dev=3.3-6 \
-    libssl-dev=1.1.1w-0+deb11u* \
+    libffi-dev \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create python symlink for convenience
@@ -31,9 +31,9 @@ RUN ln -sf /usr/bin/python3 /usr/local/bin/python \
 
 # Install modern Python package manager (uv)
 RUN curl -LsSf https://astral.sh/uv/0.4.18/install.sh | sh \
-    && mv /root/.local/bin/uv /usr/local/bin/uv \
-    && mv /root/.local/bin/uvx /usr/local/bin/uvx \
-    && rm -rf /root/.local
+    && mv /root/.cargo/bin/uv /usr/local/bin/uv \
+    && mv /root/.cargo/bin/uvx /usr/local/bin/uvx \
+    && rm -rf /root/.cargo
 
 # Install essential Python development tools globally
 RUN pip3 install --no-cache-dir \
