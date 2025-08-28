@@ -2,7 +2,8 @@
 # Built FROM reactor/base with enhanced Node.js development environment
 # Size target: <500MB compressed
 
-FROM ghcr.io/dyluth/reactor/base:latest
+ARG BASE_IMAGE=ghcr.io/dyluth/reactor/base:latest
+FROM ${BASE_IMAGE}
 
 # Switch to root for package installations
 USER root

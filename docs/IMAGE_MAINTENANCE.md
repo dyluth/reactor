@@ -27,6 +27,9 @@ docker build -f images/go/Dockerfile -t reactor/go:local .
 # Build single image
 docker build -f images/base/Dockerfile -t reactor/base:local .
 
+# Build language images using local base (for development)
+docker build -f images/python/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/python:local .
+
 # Build with official tags (for local testing)
 docker build -f images/base/Dockerfile -t ghcr.io/dyluth/reactor/base:latest .
 ```

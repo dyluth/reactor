@@ -16,6 +16,7 @@ cd "${REPO_ROOT}"
 # Default settings
 TEST_MODE=false
 OFFICIAL_TAGS=false
+LOCAL_DEV=false
 TAG_SUFFIX="local"
 
 # Parse command line arguments
@@ -30,6 +31,10 @@ while [[ $# -gt 0 ]]; do
             OFFICIAL_TAGS=true
             shift
             ;;
+        -l|--local)
+            LOCAL_DEV=true
+            shift
+            ;;
         -h|--help)
             echo "Build all Reactor container images locally"
             echo ""
@@ -38,11 +43,13 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  -t, --test     Build with :test tags and run tests"
             echo "  -o, --official Build with official tags (ghcr.io/dyluth/reactor/*)"
+            echo "  -l, --local    Use local base image for development"
             echo "  -h, --help     Show this help"
             echo ""
             echo "Examples:"
-            echo "  $0                 # Build with :local tags"
+            echo "  $0                 # Build with :local tags using remote base"
             echo "  $0 --test          # Build with :test tags and run tests"
+            echo "  $0 --local         # Build using local base image for development"
             echo "  $0 --official      # Build with official registry tags"
             exit 0
             ;;
@@ -80,9 +87,19 @@ echo ""
 
 # Build language-specific images in parallel
 echo "📦 Building language-specific images..."
-docker build -f images/python/Dockerfile -t "$PYTHON_TAG" . &
-docker build -f images/node/Dockerfile -t "$NODE_TAG" . &
-docker build -f images/go/Dockerfile -t "$GO_TAG" . &
+
+# Set base image for local development
+if [[ "$LOCAL_DEV" == "true" ]]; then
+    BASE_ARG="--build-arg BASE_IMAGE=$BASE_TAG"
+    echo "Using local base image: $BASE_TAG"
+else
+    BASE_ARG=""
+    echo "Using remote base image: ghcr.io/dyluth/reactor/base:latest"
+fi
+
+docker build $BASE_ARG -f images/python/Dockerfile -t "$PYTHON_TAG" . &
+docker build $BASE_ARG -f images/node/Dockerfile -t "$NODE_TAG" . &
+docker build $BASE_ARG -f images/go/Dockerfile -t "$GO_TAG" . &
 
 # Wait for all background builds to complete
 wait

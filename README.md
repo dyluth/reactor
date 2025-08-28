@@ -141,14 +141,17 @@ make lint
 # Build and test all images
 ./scripts/build-images.sh --test
 
+# Build for local development (uses local base image)
+./scripts/build-images.sh --local
+
 # Build with official tags
 ./scripts/build-images.sh --official
 
 # Manual builds (from repo root)
 docker build -f images/base/Dockerfile -t reactor/base:local .
-docker build -f images/python/Dockerfile -t reactor/python:local .
-docker build -f images/node/Dockerfile -t reactor/node:local .
-docker build -f images/go/Dockerfile -t reactor/go:local .
+docker build -f images/python/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/python:local .
+docker build -f images/node/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/node:local .
+docker build -f images/go/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/go:local .
 ```
 
 ## Contributing
