@@ -77,7 +77,7 @@ RUN git clone https://github.com/jimeh/git-aware-prompt.git /usr/local/git-aware
 RUN mkdir -p /workspace && chown claude:claude /workspace
 
 # Copy and configure entrypoint script
-COPY ../shared/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY shared/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Switch to claude user for runtime

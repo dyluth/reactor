@@ -74,15 +74,15 @@ echo ""
 
 # Build base image first (others depend on it)
 echo "📦 Building base image..."
-docker build -t "$BASE_TAG" images/base
+docker build -f images/base/Dockerfile -t "$BASE_TAG" .
 echo "✅ Base image built: $BASE_TAG"
 echo ""
 
 # Build language-specific images in parallel
 echo "📦 Building language-specific images..."
-docker build -t "$PYTHON_TAG" images/python &
-docker build -t "$NODE_TAG" images/node &
-docker build -t "$GO_TAG" images/go &
+docker build -f images/python/Dockerfile -t "$PYTHON_TAG" . &
+docker build -f images/node/Dockerfile -t "$NODE_TAG" . &
+docker build -f images/go/Dockerfile -t "$GO_TAG" . &
 
 # Wait for all background builds to complete
 wait

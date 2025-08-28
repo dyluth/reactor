@@ -145,10 +145,10 @@ make lint
 ./scripts/build-images.sh --official
 
 # Manual builds (from repo root)
-docker build -t reactor/base:local images/base
-docker build -t reactor/python:local images/python
-docker build -t reactor/node:local images/node
-docker build -t reactor/go:local images/go
+docker build -f images/base/Dockerfile -t reactor/base:local .
+docker build -f images/python/Dockerfile -t reactor/python:local .
+docker build -f images/node/Dockerfile -t reactor/node:local .
+docker build -f images/go/Dockerfile -t reactor/go:local .
 ```
 
 ## Contributing

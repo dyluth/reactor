@@ -19,16 +19,16 @@ ghcr.io/dyluth/reactor/base     (foundation)
 
 ```bash
 # From repository root - build all images
-docker build -t reactor/base:local images/base
-docker build -t reactor/python:local images/python  
-docker build -t reactor/node:local images/node
-docker build -t reactor/go:local images/go
+docker build -f images/base/Dockerfile -t reactor/base:local .
+docker build -f images/python/Dockerfile -t reactor/python:local .
+docker build -f images/node/Dockerfile -t reactor/node:local .
+docker build -f images/go/Dockerfile -t reactor/go:local .
 
 # Build single image
-docker build -t reactor/base:local images/base
+docker build -f images/base/Dockerfile -t reactor/base:local .
 
 # Build with official tags (for local testing)
-docker build -t ghcr.io/dyluth/reactor/base:latest images/base
+docker build -f images/base/Dockerfile -t ghcr.io/dyluth/reactor/base:latest .
 ```
 
 ### Testing Images Locally
@@ -164,10 +164,10 @@ The workflow uses these GitHub secrets and settings:
 2. **Test Image Functionality**
    ```bash
    # Build images locally for testing (from repository root)
-   docker build -t reactor/base:test images/base
-   docker build -t reactor/python:test images/python  
-   docker build -t reactor/node:test images/node
-   docker build -t reactor/go:test images/go
+   docker build -f images/base/Dockerfile -t reactor/base:test .
+   docker build -f images/python/Dockerfile -t reactor/python:test .
+   docker build -f images/node/Dockerfile -t reactor/node:test .
+   docker build -f images/go/Dockerfile -t reactor/go:test .
    
    # Run test scripts
    docker run --rm -v $(pwd)/images/base/test.sh:/test.sh reactor/base:test bash /test.sh
