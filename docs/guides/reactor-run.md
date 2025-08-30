@@ -11,7 +11,7 @@ reactor run
 # Run with specific image
 reactor run --image python
 
-# Run with port forwarding
+# Run with port forwarding (recommended: use -p shorthand)
 reactor run -p 8080:8080 -p 3000:3000
 
 # Run in discovery mode (no mounts, for testing new tools)
@@ -25,7 +25,7 @@ reactor run --docker-host-integration
 
 - **Container Recovery**: Automatically reuses existing containers
 - **Account Isolation**: Separate configs per account/project
-- **Port Forwarding**: Forward multiple ports with `-p HOST:CONTAINER`
+- **Port Forwarding**: Forward multiple ports with `-p HOST:CONTAINER` (or `--port HOST:CONTAINER`)
 - **Discovery Mode**: Clean environment for evaluating new AI tools
 
 ## Security Notes
@@ -38,8 +38,8 @@ reactor run --docker-host-integration
 
 ```bash
 # Development workflow
-reactor run --image python -p 8000:8000  # Web dev with port forwarding
-reactor run --account work               # Use work account config
+reactor run --image python -p 8000:8000     # Web dev with port forwarding
+reactor run --account work                   # Use work account config
 
 # Tool evaluation
 reactor run --discovery-mode             # Test new tool safely

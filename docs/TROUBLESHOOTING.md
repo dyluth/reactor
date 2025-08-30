@@ -166,7 +166,7 @@ docker exec -it reactor-<name> ps aux
 **Solutions**:
 - Limit container resources in Docker
 - Choose minimal image (`base` vs `python`)
-- Clean up unused containers: `reactor sessions clean`
+- Clean up unused containers with Docker commands
 
 ## Discovery Mode Issues
 
@@ -214,10 +214,11 @@ netstat -tlnp | grep 8080
 
 If everything breaks:
 ```bash
-# Stop all reactor containers
-docker ps --filter name=reactor --format "table {{.Names}}" | tail -n +2 | xargs docker stop
+# Clean up all reactor containers (recommended)
+reactor sessions clean
 
-# Remove all reactor containers
+# Alternative: Manual cleanup with Docker commands
+docker ps --filter name=reactor --format "table {{.Names}}" | tail -n +2 | xargs docker stop
 docker ps -a --filter name=reactor --format "table {{.Names}}" | tail -n +2 | xargs docker rm
 
 # Remove all state (WARNING: loses all AI tool configs)
@@ -236,7 +237,7 @@ reactor run
 reactor --verbose run
 
 # Check system info
-reactor config show --resolved
+reactor config show
 docker version
 docker system info
 ```

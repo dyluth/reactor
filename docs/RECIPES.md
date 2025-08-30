@@ -18,7 +18,7 @@ reactor run --discovery-mode    # Clean environment
 # Use the AI tool, trigger setup
 exit                           # Exit container
 reactor diff                   # See what was created
-reactor sessions clean         # Remove discovery container
+reactor sessions clean         # Clean up test containers
 ```
 
 ## Development Workflows
@@ -80,10 +80,13 @@ reactor run  # Now uses Gemini with separate state
 # See all your containers
 reactor sessions list
 
-# Clean up old discovery containers
+# Clean up all reactor containers (recommended)
 reactor sessions clean
 
-# Force remove all reactor containers (nuclear option)
+# Alternative: Clean up discovery containers with Docker
+docker ps -a --filter name=reactor-discovery --format "table {{.Names}}" | tail -n +2 | xargs docker rm -f
+
+# Nuclear option: Force remove all reactor containers manually
 docker ps -a --filter name=reactor --format "table {{.Names}}" | tail -n +2 | xargs docker rm -f
 ```
 

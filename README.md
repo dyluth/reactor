@@ -108,7 +108,7 @@ reactor run --discovery-mode
 # Use the tool to trigger its setup
 exit
 reactor diff                # See what was created
-reactor sessions clean      # Clean up
+reactor sessions clean      # Clean up test containers
 ```
 
 ## Security
