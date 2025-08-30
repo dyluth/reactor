@@ -156,7 +156,7 @@ For more details, see the full documentation.`,
 	cmd.Flags().Bool("danger", false, "Enable dangerous permissions for AI agent")
 	cmd.Flags().Bool("discovery-mode", false, "Run with no mounts for configuration discovery")
 	cmd.Flags().Bool("docker-host-integration", false, "Mount host Docker socket (DANGEROUS - use only with trusted images)")
-	cmd.Flags().StringSlice("port", []string{}, "Port forwarding (host:container), can be used multiple times")
+	cmd.Flags().StringSliceP("port", "p", []string{}, "Port forwarding (host:container), can be used multiple times")
 
 	return cmd
 }
@@ -332,6 +332,21 @@ Examples:
 For more details, see the full documentation.`,
 		RunE: sessionsAttachHandler,
 		Args: cobra.MaximumNArgs(1),
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "clean",
+		Short: "Clean up all reactor containers",
+		Long: `Clean up all reactor containers to free system resources.
+
+Removes all reactor containers (both running and stopped) across all accounts and
+projects. This is useful for system maintenance or when you want to start fresh.
+
+Examples:
+  reactor sessions clean          # Remove all reactor containers
+
+For more details, see the full documentation.`,
+		RunE: sessionsCleanHandler,
 	})
 
 	return cmd
@@ -884,5 +899,65 @@ func sessionsAttachHandler(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nSession ended. Container '%s' is still running.\n", containerName)
 	fmt.Printf("Use 'docker stop %s' to stop it.\n", containerName)
 
+	return nil
+}
+
+func sessionsCleanHandler(cmd *cobra.Command, args []string) error {
+	// Check dependencies first
+	if err := config.CheckDependencies(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	// Initialize Docker service
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	// List all reactor containers
+	containers, err := dockerService.ListReactorContainers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list reactor containers: %w", err)
+	}
+
+	if len(containers) == 0 {
+		fmt.Println("No reactor containers found to clean up.")
+		return nil
+	}
+
+	fmt.Printf("Found %d reactor containers to clean up:\n", len(containers))
+	for _, container := range containers {
+		fmt.Printf("  %s (%s)\n", container.Name, container.Status)
+	}
+
+	// Clean up all containers using standard removal
+	removedCount := 0
+	for _, container := range containers {
+		fmt.Printf("Removing container: %s ... ", container.Name)
+		
+		// Use standard container removal
+		err := dockerService.RemoveContainer(ctx, container.ID)
+		if err != nil {
+			fmt.Printf("failed: %v\n", err)
+			// Continue with other containers
+		} else {
+			fmt.Println("done")
+			removedCount++
+		}
+	}
+
+	fmt.Printf("\nSuccessfully cleaned up %d of %d reactor containers.\n", removedCount, len(containers))
 	return nil
 }

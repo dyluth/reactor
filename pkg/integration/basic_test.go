@@ -7,19 +7,26 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropics/reactor/pkg/testutil"
 )
 
 // TestBasicReactorFunctionality tests core reactor functionality
 func TestBasicReactorFunctionality(t *testing.T) {
+	// Set up isolated test environment with HOME directory
+	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
+	defer cleanup()
+
 	// Build reactor binary for testing
 	reactorBinary := buildReactorForTest(t)
 
-	// Create test directory in system temp
-	testDir := filepath.Join(t.TempDir(), "integration-test-"+randomTestString(8))
-	err := os.MkdirAll(testDir, 0755)
+	// Change to test directory
+	originalWD, _ := os.Getwd()
+	err := os.Chdir(testDir)
 	if err != nil {
-		t.Fatalf("Failed to create test directory: %v", err)
+		t.Fatalf("Failed to change to test directory: %v", err)
 	}
+	defer os.Chdir(originalWD)
 
 	isolationPrefix := "test-basic-" + randomTestString(8)
 
@@ -142,8 +149,8 @@ func TestBasicReactorFunctionality(t *testing.T) {
 func buildReactorForTest(t *testing.T) string {
 	t.Helper()
 
-	// Create a temp binary in the test temp directory
-	tempBinary := filepath.Join(t.TempDir(), "reactor-integration-test")
+	// Build the reactor binary in OS temp directory to avoid permission issues
+	tempBinary := filepath.Join(os.TempDir(), "reactor-test-"+randomTestString(8))
 	cmd := exec.Command("go", "build", "-o", tempBinary, "./cmd/reactor")
 
 	// Set working directory to project root
@@ -162,19 +169,43 @@ func buildReactorForTest(t *testing.T) string {
 }
 
 func setupBasicEnv(isolationPrefix string) []string {
-	env := []string{
-		"REACTOR_ISOLATION_PREFIX=" + isolationPrefix,
-		"PATH=" + os.Getenv("PATH"),
+	// Get current environment, which now includes the isolated HOME from testutil.WithIsolatedHome
+	env := os.Environ()
+	
+	// Add isolation prefix
+	env = append(env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
+	
+	// Ensure essential environment variables are present
+	pathFound := false
+	homeFound := false
+	userFound := false
+	
+	for _, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			pathFound = true
+		}
+		if strings.HasPrefix(e, "HOME=") {
+			homeFound = true
+		}
+		if strings.HasPrefix(e, "USER=") {
+			userFound = true
+		}
 	}
-
-	// Ensure HOME is set (required for config operations)
-	if home := os.Getenv("HOME"); home != "" {
-		env = append(env, "HOME="+home)
+	
+	// Add missing essential vars with defaults
+	if !pathFound {
+		env = append(env, "PATH="+os.Getenv("PATH"))
 	}
-
-	// Add other essential env vars if they exist
-	if user := os.Getenv("USER"); user != "" {
-		env = append(env, "USER="+user)
+	if !homeFound {
+		// This should not happen when using testutil.WithIsolatedHome, but add as fallback
+		if home := os.Getenv("HOME"); home != "" {
+			env = append(env, "HOME="+home)
+		}
+	}
+	if !userFound {
+		if user := os.Getenv("USER"); user != "" {
+			env = append(env, "USER="+user)
+		}
 	}
 
 	return env

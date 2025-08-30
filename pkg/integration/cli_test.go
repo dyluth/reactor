@@ -7,10 +7,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/anthropics/reactor/pkg/testutil"
 )
 
 // TestReactorCLIBasicCommands tests basic CLI functionality
 func TestReactorCLIBasicCommands(t *testing.T) {
+	// Set up isolated test environment with robust cleanup
+	_, _, cleanup := testutil.SetupIsolatedTest(t)
+	defer cleanup()
+	
 	// Build reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
 	defer func() { _ = os.Remove(reactorBinary) }()
@@ -80,12 +86,20 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 
 // TestReactorConfigOperations tests config initialization and management
 func TestReactorConfigOperations(t *testing.T) {
+	// Set up isolated test environment
+	_, tempDir, cleanup := testutil.SetupIsolatedTest(t)
+	defer cleanup()
+
 	reactorBinary := buildReactorBinary(t)
 	defer func() { _ = os.Remove(reactorBinary) }()
 
-	// Create temporary directory for testing
-	tempDir := createTempDir(t, "reactor-config-test")
-	defer func() { _ = os.RemoveAll(tempDir) }()
+	// Change to test directory
+	originalWD, _ := os.Getwd()
+	err := os.Chdir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to change to test directory: %v", err)
+	}
+	defer os.Chdir(originalWD)
 
 	isolationPrefix := "test-config-" + randomString(8)
 	env := []string{
@@ -207,6 +221,9 @@ func TestReactorConfigOperations(t *testing.T) {
 
 // TestContainerNaming tests the enhanced container naming scheme
 func TestContainerNaming(t *testing.T) {
+	_, _, cleanup := testutil.SetupIsolatedTest(t)
+	defer cleanup()
+	
 	reactorBinary := buildReactorBinary(t)
 	defer func() { _ = os.Remove(reactorBinary) }()
 
@@ -225,7 +242,6 @@ func TestContainerNaming(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run("naming_"+tc.dirName, func(t *testing.T) {
 			tempDir := createTempDir(t, tc.dirName)
-			defer func() { _ = os.RemoveAll(tempDir) }()
 
 			isolationPrefix := "test-naming-" + randomString(8)
 			env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}
@@ -252,8 +268,27 @@ func TestContainerNaming(t *testing.T) {
 			outputStr := string(output)
 			// The container name should follow pattern: {prefix}-reactor-cam-{sanitized-folder}-{hash}
 			// We can't predict the exact hash, but we can verify the structure
-			if !strings.Contains(outputStr, "project root:    "+tempDir) {
-				t.Errorf("Expected project root to be %s but got output: %s", tempDir, outputStr)
+			// Use canonical path comparison to handle symlink differences (e.g., /var vs /private/var on macOS)
+			if !strings.Contains(outputStr, "project root:") {
+				t.Errorf("Expected output to contain 'project root:' but got: %s", outputStr)
+			} else {
+				// Extract project root from output and compare paths using canonical comparison
+				lines := strings.Split(outputStr, "\n")
+				var actualProjectRoot string
+				for _, line := range lines {
+					if strings.Contains(line, "project root:") {
+						parts := strings.Split(line, "project root:")
+						if len(parts) > 1 {
+							actualProjectRoot = strings.TrimSpace(parts[1])
+							break
+						}
+					}
+				}
+				if actualProjectRoot != "" {
+					testutil.AssertPathsEqual(t, tempDir, actualProjectRoot, "project root should match expected directory")
+				} else {
+					t.Errorf("Could not find project root in output: %s", outputStr)
+				}
 			}
 		})
 	}
@@ -264,8 +299,8 @@ func TestContainerNaming(t *testing.T) {
 func buildReactorBinary(t *testing.T) string {
 	t.Helper()
 
-	// Build the reactor binary
-	tempBinary := filepath.Join(t.TempDir(), "reactor-test")
+	// Build the reactor binary in OS temp directory
+	tempBinary := filepath.Join(os.TempDir(), "reactor-test-"+randomString(8))
 	cmd := exec.Command("go", "build", "-o", tempBinary, "./cmd/reactor")
 
 	// Set the working directory to the project root
@@ -287,7 +322,15 @@ func buildReactorBinary(t *testing.T) string {
 func createTempDir(t *testing.T, name string) string {
 	t.Helper()
 
-	tempDir := filepath.Join(t.TempDir(), name)
+	// Ensure we have isolated HOME environment
+	// If HOME is not set, set up isolation (this handles cases where the test
+	// function didn't explicitly call testutil.WithIsolatedHome)
+	if os.Getenv("HOME") == "" {
+		testutil.WithIsolatedHome(t)
+	}
+
+	// Use OS temp directory to avoid permission issues with Docker-created files
+	tempDir := filepath.Join(os.TempDir(), name+"-"+randomString(8))
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}

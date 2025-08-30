@@ -5,11 +5,14 @@ Manage and view account-based configuration isolation.
 ## Commands
 
 ```bash
-# List all accounts with their projects
+# List all configured accounts
 reactor accounts list
 
-# Show detailed account information
-reactor accounts show <account-name>
+# Show current account
+reactor accounts show
+
+# Set active account
+reactor accounts set work
 ```
 
 ## Account Directory Structure

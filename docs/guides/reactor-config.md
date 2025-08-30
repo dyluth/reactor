@@ -11,8 +11,15 @@ reactor config init
 # Show current configuration
 reactor config show
 
-# Show effective configuration (with defaults)
-reactor config show --resolved
+# Get a specific configuration value
+reactor config get account
+reactor config get provider
+
+# Set configuration values
+reactor config set provider claude
+reactor config set account work
+reactor config set image python
+reactor config set danger true
 ```
 
 ## Configuration File

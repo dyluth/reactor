@@ -17,10 +17,10 @@ import (
 
 // Service manages Docker daemon interactions
 type Service struct {
-	client *client.Client
+	client DockerClient
 }
 
-// NewService creates a new Docker service
+// NewService creates a new Docker service with a real Docker client
 func NewService() (*Service, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -30,6 +30,14 @@ func NewService() (*Service, error) {
 	return &Service{
 		client: cli,
 	}, nil
+}
+
+// NewServiceWithClient creates a new Docker service with the provided client.
+// This constructor is primarily used for testing with mock clients.
+func NewServiceWithClient(client DockerClient) *Service {
+	return &Service{
+		client: client,
+	}
 }
 
 // Close closes the Docker client connection
@@ -201,7 +209,7 @@ func (s *Service) StopContainer(ctx context.Context, containerID string) error {
 
 // RemoveContainer removes a container (must be stopped first)
 func (s *Service) RemoveContainer(ctx context.Context, containerID string) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	if err := s.client.ContainerRemove(ctx, containerID, container.RemoveOptions{
@@ -379,12 +387,12 @@ func (s *Service) ContainerDiff(ctx context.Context, containerID string) ([]File
 	for _, change := range changes {
 		var kind string
 		switch change.Kind {
-		case 0: // ADDED
-			kind = "A"
-		case 1: // DELETED
-			kind = "D"
-		case 2: // CHANGED
+		case container.ChangeModify:
 			kind = "C"
+		case container.ChangeAdd:
+			kind = "A"
+		case container.ChangeDelete:
+			kind = "D"
 		default:
 			kind = "?"
 		}

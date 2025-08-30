@@ -3,3 +3,6 @@
 build*
 tmp*
 .DS_Store
+*.out
+*.html
+*.plan

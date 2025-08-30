@@ -8,10 +8,13 @@ List and manage active Reactor container sessions.
 # List all reactor containers
 reactor sessions list
 
-# List with detailed status
-reactor sessions list --all
+# Attach to a container (auto-detect current project)
+reactor sessions attach
 
-# Clean up stopped containers
+# Attach to specific container by name
+reactor sessions attach reactor-account-project-hash
+
+# Clean up all reactor containers
 reactor sessions clean
 ```
 
@@ -35,11 +38,18 @@ reactor-discovery-cam-test-def456      stopped   ghcr.io/...     1 hour ago
 # See all your containers across projects
 reactor sessions list
 
-# Clean up old discovery containers
-reactor sessions clean
+# Attach to current project's container
+reactor sessions attach
 
 # Find containers for specific project
 reactor sessions list | grep myproject
+
+# Clean up all reactor containers (recommended)
+reactor sessions clean
+
+# Alternative: Clean up containers manually with Docker commands
+docker stop <container-name>
+docker rm <container-name>
 ```
 
 ## Container Recovery
@@ -47,5 +57,5 @@ reactor sessions list | grep myproject
 Reactor automatically recovers stopped containers when you run `reactor run`. The sessions command helps you:
 
 - Track which projects have active containers
-- Clean up discovery containers after evaluation
+- Attach to existing containers without running `reactor run`
 - Monitor resource usage across projects
