@@ -8,8 +8,8 @@ FROM ${BASE_IMAGE}
 # Switch to root for installations
 USER root
 
-# Install Go 1.22
-ENV GO_VERSION=1.22.8
+# Install Go 1.23 (includes security fixes for CVE-2025-47907)
+ENV GO_VERSION=1.23.12
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "arm64" ]; then GO_ARCH="arm64"; \
     elif [ "$ARCH" = "amd64" ]; then GO_ARCH="amd64"; \
