@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/client"
-	"github.com/anthropics/reactor/pkg/testutil"
+	"github.com/dyluth/reactor/pkg/testutil"
 )
 
 // TestDockerIntegration tests Docker-dependent functionality

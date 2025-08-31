@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anthropics/reactor/pkg/config"
+	"github.com/dyluth/reactor/pkg/config"
 )
 
 // StateService validates existence of state directories and provides mount specifications

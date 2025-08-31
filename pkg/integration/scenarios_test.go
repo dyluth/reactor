@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropics/reactor/pkg/testutil"
+	"github.com/dyluth/reactor/pkg/testutil"
 )
 
 // TestEndToEndScenarios tests complete user workflows

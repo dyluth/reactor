@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/anthropics/reactor/pkg/config"
-	"github.com/anthropics/reactor/pkg/docker"
+	"github.com/dyluth/reactor/pkg/config"
+	"github.com/dyluth/reactor/pkg/docker"
 )
 
 // PortMapping represents a port forwarding configuration

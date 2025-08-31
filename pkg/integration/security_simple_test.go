@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anthropics/reactor/pkg/testutil"
+	"github.com/dyluth/reactor/pkg/testutil"
 )
 
 // TestSecurityFoundations tests basic security configuration and validation

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/anthropics/reactor/pkg/config"
-	"github.com/anthropics/reactor/pkg/testutil"
+	"github.com/dyluth/reactor/pkg/config"
+	"github.com/dyluth/reactor/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

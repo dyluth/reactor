@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/reactor/pkg/testutil"
+	"github.com/dyluth/reactor/pkg/testutil"
 )
 
 // TestReactorCLIBasicCommands tests basic CLI functionality

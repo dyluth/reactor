@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropics/reactor/pkg/config"
-	"github.com/anthropics/reactor/pkg/core"
-	"github.com/anthropics/reactor/pkg/docker"
+	"github.com/dyluth/reactor/pkg/config"
+	"github.com/dyluth/reactor/pkg/core"
+	"github.com/dyluth/reactor/pkg/docker"
 	"github.com/spf13/cobra"
 )
 
