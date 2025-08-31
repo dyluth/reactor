@@ -17,8 +17,8 @@ A command-line tool that provides developers with isolated, containerized enviro
 
 ### Installation
 ```bash
-# Download and install (replace with actual release URL when available)
-curl -L https://github.com/anthropics/reactor/releases/latest/download/reactor-$(uname -s)-$(uname -m) -o reactor
+# Download and install latest release
+curl -L https://github.com/dyluth/reactor/releases/latest/download/reactor-$(uname -s)-$(uname -m) -o reactor
 chmod +x reactor
 sudo mv reactor /usr/local/bin/
 ```
@@ -122,7 +122,7 @@ reactor sessions clean      # Clean up test containers
 ### Building Reactor CLI
 ```bash
 # Build from source
-git clone https://github.com/anthropics/reactor.git
+git clone https://github.com/dyluth/reactor.git
 cd reactor
 make build
 
