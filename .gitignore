@@ -7,3 +7,4 @@ tmp*
 *.html
 *.plan
 .test-*.conf
+.reactor.conf
