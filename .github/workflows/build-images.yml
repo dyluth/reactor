@@ -1,11 +1,17 @@
 name: Build and Test Container Images
+# This workflow rebuilds all container images when:
+# 1. Code is pushed to main (to ensure images stay in sync with latest code)
+# 2. Image files (Dockerfiles, scripts) are modified
+# 3. Manually triggered via workflow_dispatch
 
 on:
   push:
     branches: [ main ]
-    paths: 
-      - 'images/**'
-      - '.github/workflows/build-images.yml'
+    # Build images on any main branch push OR when image files change
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   pull_request:
     branches: [ main ]
     paths:
