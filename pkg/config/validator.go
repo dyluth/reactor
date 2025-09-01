@@ -51,14 +51,14 @@ func ValidateImage(image string) error {
 		return fmt.Errorf("image cannot be empty")
 	}
 
-	// Very short names are likely invalid
-	if len(image) < 3 {
-		return fmt.Errorf("image name too short (minimum 3 characters)")
-	}
-
-	// Check if it's a built-in image alias
+	// Check if it's a built-in image alias first (these can be short like "go")
 	if _, exists := BuiltinImages[image]; exists {
 		return nil
+	}
+
+	// For non-builtin images, very short names are likely invalid
+	if len(image) < 3 {
+		return fmt.Errorf("image name too short (minimum 3 characters)")
 	}
 
 	// For custom images, do basic validation

@@ -35,6 +35,10 @@ func TestValidateImage(t *testing.T) {
 		t.Errorf("Expected python image to be valid, got error: %v", err)
 	}
 
+	if err := ValidateImage("go"); err != nil {
+		t.Errorf("Expected go image to be valid, got error: %v", err)
+	}
+
 	// Test custom image
 	if err := ValidateImage("my-custom-image:latest"); err != nil {
 		t.Errorf("Expected custom image to be valid, got error: %v", err)
@@ -45,9 +49,9 @@ func TestValidateImage(t *testing.T) {
 		t.Error("Expected empty image to be invalid")
 	}
 
-	// Test too short image
+	// Test too short non-builtin image
 	if err := ValidateImage("ab"); err == nil {
-		t.Error("Expected too short image to be invalid")
+		t.Error("Expected too short non-builtin image to be invalid")
 	}
 }
 

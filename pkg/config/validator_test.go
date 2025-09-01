@@ -122,8 +122,7 @@ func TestValidateImage_EdgeCases(t *testing.T) {
 		{
 			name:        "builtin go image",
 			image:       "go",
-			expectError: true, // "go" is only 2 chars, fails minimum length
-			errorText:   "image name too short",
+			expectError: false, // "go" is a valid builtin image despite being 2 chars
 		},
 		{
 			name:        "builtin node image",
