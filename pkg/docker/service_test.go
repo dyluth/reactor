@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -990,4 +991,402 @@ func TestTerminalState_GetTerminalSize(t *testing.T) {
 	} else {
 		t.Logf("Detected terminal size: %dx%d", size.Cols, size.Rows)
 	}
+}
+
+// Test terminal state setup and cleanup in non-interactive environments
+func TestTerminalState_Setup_NonInteractive(t *testing.T) {
+	state := NewTerminalState()
+
+	// Setup should succeed in non-interactive environment
+	err := state.Setup()
+	assert.NoError(t, err)
+
+	// In non-interactive mode, raw mode should not be set
+	assert.False(t, state.RawModeSet)
+	assert.Nil(t, state.OriginalState)
+
+	// Size should be set to defaults or actual size (may be 0 if not set yet)
+	// Just check that we don't panic
+	assert.NotNil(t, state)
+}
+
+func TestTerminalState_Cleanup_SafeMultipleCalls(t *testing.T) {
+	state := NewTerminalState()
+
+	// Cleanup should be safe to call without setup
+	err := state.Cleanup()
+	assert.NoError(t, err)
+
+	// Multiple cleanup calls should be safe
+	err = state.Cleanup()
+	assert.NoError(t, err)
+
+	// Setup then cleanup should work
+	err = state.Setup()
+	assert.NoError(t, err)
+
+	err = state.Cleanup()
+	assert.NoError(t, err)
+
+	// Channels should be closed after cleanup
+	assert.Nil(t, state.SignalChan)
+	assert.Nil(t, state.ResizeChan)
+}
+
+func TestTerminalState_GetTerminalSize_NonInteractive(t *testing.T) {
+	state := NewTerminalState()
+
+	// Should return default size in non-interactive environment
+	size, err := state.GetTerminalSize()
+	assert.NoError(t, err)
+	assert.Equal(t, uint16(24), size.Rows)
+	assert.Equal(t, uint16(80), size.Cols)
+}
+
+func TestTerminalState_StartSignalHandling_NonInteractive(t *testing.T) {
+	state := NewTerminalState()
+
+	// Should not panic in non-interactive environment
+	assert.NotPanics(t, func() {
+		state.StartSignalHandling()
+	})
+
+	// Signal channel should be initialized
+	assert.NotNil(t, state.SignalChan)
+
+	// Cleanup should work after signal handling setup
+	err := state.Cleanup()
+	assert.NoError(t, err)
+}
+
+func TestService_ResizeTerminal(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	// Set up mock expectation for ContainerResize
+	mockClient.On("ContainerResize", mock.Anything, "test-container", mock.AnythingOfType("container.ResizeOptions")).Return(nil)
+
+	// ResizeTerminal should handle non-interactive environment gracefully
+	newSize := TTYSize{Rows: 30, Cols: 100}
+	err := service.ResizeTerminal(context.Background(), "test-container", newSize)
+
+	// Should succeed with proper mock setup
+	assert.NoError(t, err)
+
+	// Test should complete without panicking
+	assert.NotNil(t, service)
+	mockClient.AssertExpectations(t)
+}
+
+func TestService_AttachInteractiveSession_NonInteractive(t *testing.T) {
+	// This tests the parameter validation and early exit behavior
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	containerID := "test-container-id"
+
+	// Set up mock expectation for ContainerInspect to return a running container
+	containerState := types.ContainerState{Running: false} // Not running
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &containerState,
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Should return error when container is not running
+	err := service.AttachInteractiveSession(context.Background(), containerID)
+
+	// Should get "container is not running" error
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "is not running")
+	mockClient.AssertExpectations(t)
+}
+
+func TestService_AttachInteractiveSession_RunningContainer(t *testing.T) {
+	// Test deeper into the function with running container but fail at exec creation
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	containerID := "test-container-id"
+
+	// Set up mock for ContainerInspect to return running container
+	containerState := types.ContainerState{Running: true}
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &containerState,
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Set up mock for ContainerExecCreate to fail (simulates exec creation error)
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{}, errors.New("exec creation failed"))
+
+	// Should get exec creation failure
+	err := service.AttachInteractiveSession(context.Background(), containerID)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create exec instance")
+	mockClient.AssertExpectations(t)
+}
+
+func TestService_AttachInteractiveSession_AttachFailure(t *testing.T) {
+	// Test even deeper into the function - pass exec creation but fail at attach
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	containerID := "test-container-id"
+	execID := "test-exec-id"
+
+	// Set up mock for ContainerInspect to return running container
+	containerState := types.ContainerState{Running: true}
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &containerState,
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Set up mock for ContainerExecCreate to succeed
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{ID: execID}, nil)
+
+	// Set up mock for ContainerExecAttach to fail
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(types.HijackedResponse{}, errors.New("attach failed"))
+
+	// Should get attach failure error
+	err := service.AttachInteractiveSession(context.Background(), containerID)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to attach to exec instance")
+	mockClient.AssertExpectations(t)
+}
+
+func TestTerminalState_ChannelInitialization(t *testing.T) {
+	state := NewTerminalState()
+
+	// Channels should be initialized
+	assert.NotNil(t, state.SignalChan)
+	assert.NotNil(t, state.ResizeChan)
+
+	// Channels should be buffered
+	select {
+	case state.ResizeChan <- TTYSize{Rows: 25, Cols: 81}:
+		// Should not block
+	default:
+		t.Error("Resize channel should be buffered")
+	}
+}
+
+func TestTerminalState_ConcurrentAccess(t *testing.T) {
+	state := NewTerminalState()
+
+	// Test concurrent setup/cleanup doesn't panic
+	var wg sync.WaitGroup
+	errors := make(chan error, 4)
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := state.Setup(); err != nil {
+				errors <- err
+			}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := state.Cleanup(); err != nil {
+				errors <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check for any errors (some might be expected due to concurrency)
+	errorCount := 0
+	for err := range errors {
+		if err != nil {
+			errorCount++
+			t.Logf("Concurrent operation error (may be expected): %v", err)
+		}
+	}
+
+	// The important thing is that it didn't panic
+	t.Logf("Concurrent access test completed with %d errors (panics would be more serious)", errorCount)
+}
+
+// Test NewService error path (currently at 75% coverage)
+func TestNewService_ErrorPath(t *testing.T) {
+	// This test is tricky because NewService typically either works or doesn't
+	// But we can test the construction path
+	service, err := NewService()
+	if err != nil {
+		// Expected in environments without Docker
+		t.Logf("NewService error (expected in CI): %v", err)
+		assert.Nil(t, service)
+	} else {
+		// Success path
+		assert.NotNil(t, service)
+		assert.NotNil(t, service.client)
+		_ = service.Close()
+	}
+}
+
+// Test CheckHealth error conditions (currently at 87.5% coverage)
+func TestCheckHealth_DetailedError(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	// Test ping failure
+	mockClient.On("Ping", mock.Anything).Return(types.Ping{}, context.Canceled)
+
+	err := service.CheckHealth(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "docker daemon is not accessible")
+
+	mockClient.AssertExpectations(t)
+}
+
+// Test ContainerExists edge cases (currently at 93.3% coverage)
+func TestContainerExists_EdgeCases(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	// Set up mock to return empty container list (no containers found)
+	mockClient.On("ContainerList", mock.Anything, mock.AnythingOfType("container.ListOptions")).Return([]types.Container{}, nil)
+
+	// Test with empty container name
+	containerInfo, err := service.ContainerExists(context.Background(), "")
+	assert.Equal(t, StatusNotFound, containerInfo.Status)
+	assert.NoError(t, err) // Current implementation doesn't validate empty names
+
+	// Test with whitespace-only name
+	containerInfo, err = service.ContainerExists(context.Background(), "   ")
+	assert.Equal(t, StatusNotFound, containerInfo.Status)
+	assert.NoError(t, err) // Current implementation doesn't validate whitespace names
+
+	mockClient.AssertExpectations(t)
+}
+
+// Test CreateContainer edge cases (currently at 94.1% coverage)
+func TestCreateContainer_EdgeCases(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	// Test with empty name - should be allowed to continue (Docker will handle it)
+	spec := &ContainerSpec{
+		Name:  "",
+		Image: "test:latest",
+	}
+
+	// Set up mock to simulate successful container creation with empty name
+	mockClient.On("ContainerCreate", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "").Return(container.CreateResponse{ID: "test-id"}, nil)
+
+	containerInfo, err := service.CreateContainer(context.Background(), spec)
+	assert.NoError(t, err)
+	assert.Equal(t, "test-id", containerInfo.ID)
+	assert.Equal(t, "", containerInfo.Name) // Empty name passed through
+
+	mockClient.AssertExpectations(t)
+}
+
+// Test ContainerDiff error cases (currently at 93.3% coverage)
+func TestContainerDiff_ErrorCases(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	// Test with empty container name - Docker will handle validation
+	mockClient.On("ContainerDiff", mock.Anything, "").Return(
+		[]container.FilesystemChange{}, errors.New("no such container"))
+
+	_, err := service.ContainerDiff(context.Background(), "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get container diff")
+
+	// Test with container that doesn't exist
+	mockClient.On("ContainerDiff", mock.Anything, "nonexistent").Return(
+		[]container.FilesystemChange{}, errors.New("no such container"))
+
+	_, err = service.ContainerDiff(context.Background(), "nonexistent")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get container diff")
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestProvisionContainerWithCleanup_StopFailure(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	spec := &ContainerSpec{
+		Name:  "test-container",
+		Image: "test:latest",
+	}
+
+	// Mock container exists running
+	mockClient.On("ContainerList", mock.Anything, mock.AnythingOfType("container.ListOptions")).Return(
+		[]types.Container{{
+			ID:    "existing-id",
+			Names: []string{"/test-container"},
+			State: "running",
+			Image: "test:latest",
+		}}, nil)
+
+	// Mock stop container failure
+	mockClient.On("ContainerStop", mock.Anything, "existing-id", mock.AnythingOfType("container.StopOptions")).Return(errors.New("failed to stop"))
+
+	// Should get error when stop fails during force cleanup
+	_, err := service.ProvisionContainerWithCleanup(context.Background(), spec, true)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to stop existing container for cleanup")
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestProvisionContainerWithCleanup_RemoveFailureDuringCleanup(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	spec := &ContainerSpec{
+		Name:  "test-container",
+		Image: "test:latest",
+	}
+
+	// Mock container exists stopped
+	mockClient.On("ContainerList", mock.Anything, mock.AnythingOfType("container.ListOptions")).Return(
+		[]types.Container{{
+			ID:    "existing-id",
+			Names: []string{"/test-container"},
+			State: "exited",
+			Image: "test:latest",
+		}}, nil)
+
+	// Mock remove container failure during force cleanup
+	mockClient.On("ContainerRemove", mock.Anything, "existing-id", mock.AnythingOfType("container.RemoveOptions")).Return(errors.New("failed to remove"))
+
+	// Should get error when remove fails during force cleanup
+	_, err := service.ProvisionContainerWithCleanup(context.Background(), spec, true)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to remove existing container for cleanup")
+
+	mockClient.AssertExpectations(t)
+}
+
+// Test ListReactorContainers error edge case (currently at 94.4% coverage)
+func TestListReactorContainers_FilterError(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := NewServiceWithClient(mockClient)
+
+	// Test container list error
+	mockClient.On("ContainerList", mock.Anything, mock.AnythingOfType("container.ListOptions")).Return(
+		[]types.Container{}, context.DeadlineExceeded)
+
+	_, err := service.ListReactorContainers(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list containers")
+
+	mockClient.AssertExpectations(t)
 }

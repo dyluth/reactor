@@ -147,3 +147,44 @@ func TestSetupIsolatedTest(t *testing.T) {
 
 	AssertPathsEqual(t, originalWD, restoredWD, "cleanup should restore original working directory")
 }
+
+func TestRobustRemoveAll_Success(t *testing.T) {
+	// Create a test directory we can remove
+	testDir := t.TempDir()
+	subDir := filepath.Join(testDir, "subdir")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+
+	// Create a test file
+	testFile := filepath.Join(subDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Copy the testDir path since t.TempDir() manages its own cleanup
+	testDirCopy := filepath.Join(os.TempDir(), "robust-remove-test-"+filepath.Base(testDir))
+	if err := os.Rename(testDir, testDirCopy); err != nil {
+		t.Fatalf("Failed to rename test directory: %v", err)
+	}
+
+	// RobustRemoveAll should successfully remove the directory
+	err := RobustRemoveAll(t, testDirCopy)
+	if err != nil {
+		t.Errorf("RobustRemoveAll failed: %v", err)
+	}
+
+	// Directory should no longer exist
+	if _, err := os.Stat(testDirCopy); !os.IsNotExist(err) {
+		t.Error("Directory should have been removed")
+	}
+}
+
+func TestRobustRemoveAll_NonExistent(t *testing.T) {
+	// RobustRemoveAll should succeed on non-existent paths
+	nonExistentPath := filepath.Join(os.TempDir(), "non-existent-dir-12345")
+	err := RobustRemoveAll(t, nonExistentPath)
+	if err != nil {
+		t.Errorf("RobustRemoveAll should succeed on non-existent paths: %v", err)
+	}
+}
