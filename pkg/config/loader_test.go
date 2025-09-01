@@ -340,3 +340,15 @@ func TestCheckDependencies(t *testing.T) {
 		_ = CheckDependencies()
 	})
 }
+
+func TestGetSystemUsername(t *testing.T) {
+	t.Run("get system username", func(t *testing.T) {
+		username, err := GetSystemUsername()
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+		if username == "" {
+			t.Error("Expected non-empty username")
+		}
+	})
+}

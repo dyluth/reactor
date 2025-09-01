@@ -118,7 +118,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		}
 
 		outputStr := string(output)
-		
+
 		// Get current username for dynamic test validation
 		currentUser := os.Getenv("USER")
 		if currentUser == "" {
@@ -129,7 +129,7 @@ func TestReactorConfigOperations(t *testing.T) {
 				currentUser = "unknown"
 			}
 		}
-		
+
 		expectedStrings := []string{
 			"Created directory:",
 			"Initialized project configuration",

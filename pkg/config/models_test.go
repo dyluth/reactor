@@ -70,6 +70,26 @@ func TestGenerateProjectHash(t *testing.T) {
 	if len(hash1) != 8 {
 		t.Errorf("Expected hash length 8, got %d", len(hash1))
 	}
+
+	// Empty path should still generate hash
+	emptyHash := GenerateProjectHash("")
+	if len(emptyHash) != 8 {
+		t.Errorf("Expected empty path hash length 8, got %d", len(emptyHash))
+	}
+
+	// Very long path should still generate valid hash
+	longPath := "/very/long/path/with/many/segments/that/exceeds/normal/length/project/directory/name"
+	longHash := GenerateProjectHash(longPath)
+	if len(longHash) != 8 {
+		t.Errorf("Expected long path hash length 8, got %d", len(longHash))
+	}
+
+	// Hash should only contain valid characters (alphanumeric)
+	for _, char := range hash1 {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+			t.Errorf("Hash contains invalid character: %c", char)
+		}
+	}
 }
 
 func TestResolveImage(t *testing.T) {
@@ -92,6 +112,27 @@ func TestResolveImage(t *testing.T) {
 	expected = BuiltinImages["base"]
 	if result != expected {
 		t.Errorf("Expected provider default to be used: got %s, want %s", result, expected)
+	}
+
+	// Custom CLI image should pass through unchanged
+	customImage := "custom/myimage:latest"
+	result = ResolveImage("", "base", customImage)
+	if result != customImage {
+		t.Errorf("Expected custom CLI image to pass through: got %s, want %s", result, customImage)
+	}
+
+	// Custom config image should pass through unchanged
+	customConfigImage := "registry.io/project:v1.0"
+	result = ResolveImage(customConfigImage, "base", "")
+	if result != customConfigImage {
+		t.Errorf("Expected custom config image to pass through: got %s, want %s", result, customConfigImage)
+	}
+
+	// Custom provider default should pass through unchanged
+	customDefault := "myregistry/default:latest"
+	result = ResolveImage("", customDefault, "")
+	if result != customDefault {
+		t.Errorf("Expected custom provider default to pass through: got %s, want %s", result, customDefault)
 	}
 }
 
