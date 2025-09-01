@@ -13,7 +13,7 @@ import (
 
 func TestStateService_ValidateDirectories_Success(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	// Create temporary directories
 	tempDir := t.TempDir()
 	accountDir := filepath.Join(tempDir, "account")
@@ -47,7 +47,7 @@ func TestStateService_ValidateDirectories_Success(t *testing.T) {
 
 func TestStateService_ValidateDirectories_MissingAccountDir(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
 	nonExistentAccountDir := filepath.Join(tempDir, "nonexistent-account")
 	projectDir := filepath.Join(tempDir, "project")
@@ -71,7 +71,7 @@ func TestStateService_ValidateDirectories_MissingAccountDir(t *testing.T) {
 
 func TestStateService_ValidateDirectories_MissingProjectDir(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
 	accountDir := filepath.Join(tempDir, "account")
 	nonExistentProjectDir := filepath.Join(tempDir, "nonexistent-project")
@@ -95,11 +95,11 @@ func TestStateService_ValidateDirectories_MissingProjectDir(t *testing.T) {
 
 func TestStateService_ValidateDirectories_MissingProviderDir(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
 	accountDir := filepath.Join(tempDir, "account")
 	projectDir := filepath.Join(tempDir, "project")
-	
+
 	// Create base directories but NOT the provider directory
 	require.NoError(t, os.MkdirAll(accountDir, 0755))
 	require.NoError(t, os.MkdirAll(projectDir, 0755))
@@ -124,11 +124,11 @@ func TestStateService_ValidateDirectories_MissingProviderDir(t *testing.T) {
 
 func TestStateService_ValidateDirectories_MultipleProviderDirs(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
 	accountDir := filepath.Join(tempDir, "account")
 	projectDir := filepath.Join(tempDir, "project")
-	
+
 	// Create base directories and first provider directory
 	require.NoError(t, os.MkdirAll(accountDir, 0755))
 	require.NoError(t, os.MkdirAll(projectDir, 0755))
@@ -156,7 +156,7 @@ func TestStateService_ValidateDirectories_MultipleProviderDirs(t *testing.T) {
 
 func TestStateService_GetMounts(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")
 	projectRoot := filepath.Join(tempDir, "workspace")
@@ -211,7 +211,7 @@ func TestStateService_GetMounts(t *testing.T) {
 
 func TestStateService_GetMounts_NoProviderMounts(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	projectRoot := "/home/user/myproject"
 
 	resolved := &config.ResolvedConfig{
@@ -238,13 +238,13 @@ func TestStateService_GetMounts_NoProviderMounts(t *testing.T) {
 
 func TestStateService_GetMounts_EmptyProvider(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	projectRoot := "/home/user/project"
 
 	resolved := &config.ResolvedConfig{
 		ProjectConfigDir: "/config",
 		ProjectRoot:      projectRoot,
-		Provider: config.ProviderInfo{}, // Empty provider config
+		Provider:         config.ProviderInfo{}, // Empty provider config
 	}
 
 	service := NewStateService(resolved)
@@ -259,7 +259,7 @@ func TestStateService_GetMounts_EmptyProvider(t *testing.T) {
 
 func TestStateService_GetAccount(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	resolved := &config.ResolvedConfig{
 		Account: "testuser",
 	}
@@ -272,7 +272,7 @@ func TestStateService_GetAccount(t *testing.T) {
 
 func TestStateService_GetProjectHash(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	resolved := &config.ResolvedConfig{
 		ProjectHash: "abcdef123456",
 	}
@@ -285,7 +285,7 @@ func TestStateService_GetProjectHash(t *testing.T) {
 
 func TestStateService_GetProjectRoot(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	resolved := &config.ResolvedConfig{
 		ProjectRoot: "/home/user/myproject",
 	}
@@ -298,7 +298,7 @@ func TestStateService_GetProjectRoot(t *testing.T) {
 
 func TestNewStateService(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	resolved := &config.ResolvedConfig{
 		Account:     "test",
 		ProjectRoot: "/test",
@@ -314,15 +314,15 @@ func TestNewStateService(t *testing.T) {
 
 func TestStateService_ValidateDirectories_SymbolicLinks(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
 	actualAccountDir := filepath.Join(tempDir, "actual-account")
 	symlinkAccountDir := filepath.Join(tempDir, "symlink-account")
-	
+
 	// Create actual directory and symbolic link
 	require.NoError(t, os.MkdirAll(actualAccountDir, 0755))
 	require.NoError(t, os.Symlink(actualAccountDir, symlinkAccountDir))
-	
+
 	// Create project directory
 	projectDir := filepath.Join(tempDir, "project")
 	require.NoError(t, os.MkdirAll(projectDir, 0755))
@@ -344,9 +344,9 @@ func TestStateService_ValidateDirectories_SymbolicLinks(t *testing.T) {
 
 func TestStateService_ValidateDirectories_FileInsteadOfDirectory(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tempDir := t.TempDir()
-	
+
 	// Create a file where we expect a directory
 	accountFile := filepath.Join(tempDir, "account-file")
 	require.NoError(t, os.WriteFile(accountFile, []byte("not a directory"), 0644))
@@ -369,7 +369,7 @@ func TestStateService_ValidateDirectories_FileInsteadOfDirectory(t *testing.T) {
 
 func TestStateService_GetMounts_AbsolutePaths(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	projectConfigDir := "/absolute/path/to/config"
 	projectRoot := "/absolute/path/to/project"
 
@@ -387,7 +387,7 @@ func TestStateService_GetMounts_AbsolutePaths(t *testing.T) {
 	mounts := service.GetMounts()
 
 	require.Len(t, mounts, 2)
-	
+
 	// Verify that relative source path gets joined with ProjectConfigDir
 	expectedProviderMount := MountSpec{
 		Source: filepath.Join(projectConfigDir, "relative/path"),
@@ -395,7 +395,7 @@ func TestStateService_GetMounts_AbsolutePaths(t *testing.T) {
 		Type:   "bind",
 	}
 	assert.Equal(t, expectedProviderMount, mounts[0])
-	
+
 	// Verify project root mount uses absolute path
 	expectedProjectMount := MountSpec{
 		Source: projectRoot,

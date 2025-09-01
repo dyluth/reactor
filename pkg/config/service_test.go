@@ -20,12 +20,12 @@ func TestNewService(t *testing.T) {
 	_ = os.Chdir(tempDir)
 
 	service := NewService()
-	
+
 	// Check that project root is set to some form of tempDir (may have symlink resolution)
 	if !strings.Contains(service.projectRoot, "TestNewService") {
 		t.Errorf("Expected project root to contain test dir, got %s", service.projectRoot)
 	}
-	
+
 	expectedConfigPath := GetProjectConfigPath()
 	if service.configPath != expectedConfigPath {
 		t.Errorf("Expected config path %s, got %s", expectedConfigPath, service.configPath)
@@ -58,7 +58,7 @@ func TestService_InitializeProject(t *testing.T) {
 		if err != nil {
 			t.Errorf("Should be able to load created config: %v", err)
 		}
-		
+
 		if config.Provider == "" {
 			t.Error("Provider should be set")
 		}
@@ -76,7 +76,7 @@ func TestService_InitializeProject(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when trying to initialize twice")
 		}
-		
+
 		if !strings.Contains(err.Error(), "already initialized") {
 			t.Errorf("Expected 'already initialized' error, got: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestService_GetConfigValue(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("get_%s", tc.key), func(t *testing.T) {
 			value, err := service.GetConfigValue(tc.key)
-			
+
 			if tc.expectError {
 				if err == nil {
 					t.Errorf("Expected error for key '%s'", tc.key)
@@ -226,7 +226,7 @@ func TestService_SetConfigValue(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for invalid boolean")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid boolean value") {
 			t.Errorf("Expected boolean error, got: %v", err)
 		}
@@ -258,7 +258,7 @@ func TestService_SetConfigValue(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for unknown key")
 		}
-		
+
 		if !strings.Contains(err.Error(), "unknown configuration key") {
 			t.Errorf("Expected unknown key error, got: %v", err)
 		}
@@ -326,13 +326,13 @@ func TestService_LoadConfiguration(t *testing.T) {
 	t.Run("load configuration with invalid provider", func(t *testing.T) {
 		// First set an invalid provider in the config
 		_ = service.SetConfigValue("provider", "claude") // Reset to valid
-		
+
 		// Now try with invalid CLI override (this should fail at resolution, not validation)
 		_, err := service.LoadConfiguration("nonexistent", "", "", false)
 		if err == nil {
 			t.Error("Expected error for nonexistent provider")
 		}
-		
+
 		if !strings.Contains(err.Error(), "unknown provider") {
 			t.Errorf("Expected unknown provider error, got: %v", err)
 		}
@@ -361,7 +361,7 @@ func TestService_ListAccounts(t *testing.T) {
 	service := NewService()
 
 	t.Run("list accounts without error", func(t *testing.T) {
-		// We can't easily mock the filesystem structure, 
+		// We can't easily mock the filesystem structure,
 		// but we can ensure it doesn't panic or error unexpectedly
 		err := service.ListAccounts()
 		// Error is OK if ~/.reactor doesn't exist
@@ -382,7 +382,7 @@ func TestService_createProjectDirectories(t *testing.T) {
 	defer func() { _ = os.Unsetenv("REACTOR_ISOLATION_PREFIX") }()
 
 	service := NewService()
-	
+
 	config := &ProjectConfig{
 		Provider: "claude",
 		Account:  "testuser",
@@ -400,7 +400,7 @@ func TestService_createProjectDirectories(t *testing.T) {
 		reactorHome, _ := GetReactorHomeDir()
 		projectHash := GenerateProjectHash(service.projectRoot)
 		expectedDir := filepath.Join(reactorHome, config.Account, projectHash, "claude")
-		
+
 		if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
 			t.Errorf("Directory should have been created: %s", expectedDir)
 		}

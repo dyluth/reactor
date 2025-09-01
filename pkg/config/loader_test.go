@@ -17,7 +17,7 @@ func TestLoadProjectConfig(t *testing.T) {
 account: testuser
 image: base
 danger: false`
-		
+
 		err := os.WriteFile(configPath, []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("Failed to write test config: %v", err)
@@ -44,12 +44,12 @@ danger: false`
 
 	t.Run("missing config file", func(t *testing.T) {
 		nonexistentPath := filepath.Join(tempDir, "nonexistent.conf")
-		
+
 		_, err := LoadProjectConfig(nonexistentPath)
 		if err == nil {
 			t.Error("Expected error for missing config file")
 		}
-		
+
 		if !strings.Contains(err.Error(), "no project configuration found") {
 			t.Errorf("Expected specific error message, got: %v", err)
 		}
@@ -62,7 +62,7 @@ account: testuser
 image: base
 danger: false
 invalid_yaml: [unclosed bracket`
-		
+
 		err := os.WriteFile(configPath, []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("Failed to write test config: %v", err)
@@ -72,7 +72,7 @@ invalid_yaml: [unclosed bracket`
 		if err == nil {
 			t.Error("Expected error for malformed YAML")
 		}
-		
+
 		if !strings.Contains(err.Error(), "failed to parse YAML") {
 			t.Errorf("Expected YAML parse error, got: %v", err)
 		}
@@ -83,7 +83,7 @@ invalid_yaml: [unclosed bracket`
 		content := `provider: ""
 account: testuser
 image: base`
-		
+
 		err := os.WriteFile(configPath, []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("Failed to write test config: %v", err)
@@ -93,7 +93,7 @@ image: base`
 		if err == nil {
 			t.Error("Expected error for empty provider")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid configuration") {
 			t.Errorf("Expected validation error, got: %v", err)
 		}
@@ -104,7 +104,7 @@ image: base`
 		content := `provider: claude
 account: "../malicious"
 image: base`
-		
+
 		err := os.WriteFile(configPath, []byte(content), 0600)
 		if err != nil {
 			t.Fatalf("Failed to write test config: %v", err)
@@ -114,7 +114,7 @@ image: base`
 		if err == nil {
 			t.Error("Expected error for malicious account path")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid configuration") {
 			t.Errorf("Expected validation error, got: %v", err)
 		}
@@ -125,12 +125,12 @@ image: base`
 		content := `provider: claude
 account: testuser
 image: base`
-		
+
 		err := os.WriteFile(configPath, []byte(content), 0000) // No read permissions
 		if err != nil {
 			t.Fatalf("Failed to write test config: %v", err)
 		}
-		
+
 		// Clean up permissions after test
 		defer func() { _ = os.Chmod(configPath, 0600) }()
 
@@ -138,7 +138,7 @@ image: base`
 		if err == nil {
 			t.Error("Expected error for unreadable file")
 		}
-		
+
 		if !strings.Contains(err.Error(), "failed to read config file") {
 			t.Errorf("Expected read error, got: %v", err)
 		}
@@ -155,7 +155,7 @@ func TestSaveProjectConfig(t *testing.T) {
 			Image:    "python",
 			Danger:   true,
 		}
-		
+
 		configPath := filepath.Join(tempDir, "save_test.conf")
 		err := SaveProjectConfig(config, configPath)
 		if err != nil {
@@ -167,7 +167,7 @@ func TestSaveProjectConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Config file should exist: %v", err)
 		}
-		
+
 		expectedMode := os.FileMode(0600)
 		if info.Mode().Perm() != expectedMode {
 			t.Errorf("Expected permissions %v, got %v", expectedMode, info.Mode().Perm())
@@ -190,7 +190,7 @@ func TestSaveProjectConfig(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for nil config")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid configuration") {
 			t.Errorf("Expected validation error, got: %v", err)
 		}
@@ -202,14 +202,14 @@ func TestSaveProjectConfig(t *testing.T) {
 			Account:  "testuser",
 			Image:    "base",
 		}
-		
+
 		// Try to write to a directory that doesn't exist
 		invalidPath := "/nonexistent/directory/config.conf"
 		err := SaveProjectConfig(config, invalidPath)
 		if err == nil {
 			t.Error("Expected error for invalid path")
 		}
-		
+
 		if !strings.Contains(err.Error(), "failed to write config file") {
 			t.Errorf("Expected write error, got: %v", err)
 		}
@@ -222,7 +222,7 @@ func TestValidateProjectConfig(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error for nil config")
 		}
-		
+
 		if !strings.Contains(err.Error(), "config cannot be nil") {
 			t.Errorf("Expected nil error, got: %v", err)
 		}
@@ -235,7 +235,7 @@ func TestValidateProjectConfig(t *testing.T) {
 			Image:    "base",
 			Danger:   false,
 		}
-		
+
 		err := ValidateProjectConfig(config)
 		if err != nil {
 			t.Errorf("Expected no error for valid config, got: %v", err)
@@ -248,12 +248,12 @@ func TestValidateProjectConfig(t *testing.T) {
 			Account:  "testuser",
 			Image:    "base",
 		}
-		
+
 		err := ValidateProjectConfig(config)
 		if err == nil {
 			t.Error("Expected error for empty provider")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid provider") {
 			t.Errorf("Expected provider error, got: %v", err)
 		}
@@ -265,12 +265,12 @@ func TestValidateProjectConfig(t *testing.T) {
 			Account:  "/..",
 			Image:    "base",
 		}
-		
+
 		err := ValidateProjectConfig(config)
 		if err == nil {
 			t.Error("Expected error for malicious account")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid account") {
 			t.Errorf("Expected account error, got: %v", err)
 		}
@@ -282,12 +282,12 @@ func TestValidateProjectConfig(t *testing.T) {
 			Account:  "testuser",
 			Image:    "",
 		}
-		
+
 		err := ValidateProjectConfig(config)
 		if err == nil {
 			t.Error("Expected error for empty image")
 		}
-		
+
 		if !strings.Contains(err.Error(), "invalid image") {
 			t.Errorf("Expected image error, got: %v", err)
 		}
@@ -304,11 +304,11 @@ func TestCreateDefaultProjectConfig(t *testing.T) {
 		if config.Provider != "claude" {
 			t.Errorf("Expected default provider 'claude', got '%s'", config.Provider)
 		}
-		
+
 		if config.Image != "base" {
 			t.Errorf("Expected default image 'base', got '%s'", config.Image)
 		}
-		
+
 		if config.Danger != false {
 			t.Errorf("Expected default danger false, got %v", config.Danger)
 		}
@@ -335,7 +335,7 @@ func TestCheckDependencies(t *testing.T) {
 				t.Errorf("CheckDependencies panicked: %v", r)
 			}
 		}()
-		
+
 		// This may or may not return an error depending on system
 		_ = CheckDependencies()
 	})

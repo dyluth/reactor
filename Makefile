@@ -20,10 +20,10 @@ CMD_DIR := ./cmd/reactor
 # Test isolation settings
 TEST_PREFIX := test-$(shell date +%s)-$(shell echo $$RANDOM)
 
-.PHONY: all build test test-unit test-integration test-isolated test-coverage test-coverage-isolated lint clean install help deps
+.PHONY: all build test test-unit test-integration test-isolated test-coverage test-coverage-isolated lint clean install help deps ci check docker-images docker-clean
 
-# Default target
-all: build
+# Default target - show help
+all: help
 
 ## Build the reactor binary
 build:
@@ -35,14 +35,14 @@ build:
 ## Run all tests (unit + integration)
 test: test-unit test-integration
 
-## Run unit tests only
+## Run unit tests only  
 test-unit:
-	go test -v ./pkg/config ./pkg/core ./pkg/docker
+	go test -v ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil
 
 ## Run integration tests only
 test-integration:
 	@echo "Running integration tests..."
-	go test -v ./pkg/integration -run TestBasicReactorFunctionality
+	go test -v ./pkg/integration
 
 ## Run tests with isolation (recommended for CI/development)
 test-isolated: test-unit-isolated test-integration-isolated
@@ -50,23 +50,31 @@ test-isolated: test-unit-isolated test-integration-isolated
 ## Run unit tests with isolation
 test-unit-isolated:
 	@echo "Running unit tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/config ./pkg/core ./pkg/docker
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil
 
 ## Run integration tests with isolation
 test-integration-isolated:
 	@echo "Running integration tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/integration -run TestBasicReactorFunctionality
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/integration
 
 ## Run tests with coverage
 test-coverage:
-	go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/integration
+	go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/integration
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Run tests with coverage and isolation (recommended for CI)
 test-coverage-isolated:
 	@echo "Running coverage tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/integration
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/integration
 	go tool cover -html=coverage.out -o coverage.html
+
+## Comprehensive CI check - runs all validation needed for production confidence
+ci: deps fmt lint test-coverage-isolated
+	@echo "✅ All CI checks passed! Ready for production."
+
+## Quick development check - faster validation during development  
+check: fmt lint test-isolated
+	@echo "✅ Development checks passed!"
 
 ## Run linting
 lint:
@@ -126,7 +134,41 @@ build-all:
 	
 	@echo "Cross-compilation complete. Binaries in $(BUILD_DIR)/"
 
-## Show available make targets
+## Build Docker images for all language environments
+docker-images:
+	@echo "Building Docker images..."
+	@if [ -f "./scripts/build-images.sh" ]; then \
+		./scripts/build-images.sh; \
+	else \
+		echo "Warning: ./scripts/build-images.sh not found. Skipping Docker image build."; \
+	fi
+
+## Clean Docker images (removes locally built reactor images)
+docker-clean:
+	@echo "Cleaning up reactor Docker images..."
+	@docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}" | grep "reactor-" | awk '{print $$3}' | xargs -r docker rmi -f || true
+	@echo "Docker cleanup complete."
+
+## Show available make targets and usage examples
 help:
-	@echo "Available targets:"
-	@grep -E '^##' $(MAKEFILE_LIST) | sed 's/^## /  /'
+	@echo "🚀 Reactor Build System"
+	@echo ""
+	@echo "USAGE:"
+	@echo "  make <target>           Run a specific target"
+	@echo "  make                    Show this help (default)"
+	@echo ""
+	@echo "KEY TARGETS:"
+	@echo "  ci                      🎯 Full CI validation (deps + fmt + lint + test + coverage)"
+	@echo "  check                   ⚡ Quick dev validation (fmt + lint + test)"
+	@echo "  build                   🔨 Build reactor binary"
+	@echo "  test-isolated           🧪 Run all tests with isolation (recommended)"
+	@echo ""
+	@echo "ALL TARGETS:"
+	@grep -E '^##' $(MAKEFILE_LIST) | sed 's/^## /  /' | sort
+	@echo ""
+	@echo "EXAMPLES:"
+	@echo "  make ci                 # Run full CI pipeline locally"  
+	@echo "  make check              # Quick validation during development"
+	@echo "  make build              # Build binary for current platform"
+	@echo "  make build-all          # Cross-compile for all platforms"
+	@echo "  make docker-images      # Build all Docker environment images"

@@ -85,7 +85,7 @@ func TestValidateAccount(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ValidateAccount(tc.account)
-			
+
 			if tc.expectError {
 				if err == nil {
 					t.Errorf("Expected error for account '%s', but got none", tc.account)
@@ -232,7 +232,7 @@ func TestValidateImage_EdgeCases(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ValidateImage(tc.image)
-			
+
 			if tc.expectError {
 				if err == nil {
 					t.Errorf("Expected error for image '%s', but got none", tc.image)
@@ -299,7 +299,7 @@ func TestValidateProvider_EdgeCases(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ValidateProvider(tc.provider)
-			
+
 			if tc.expectError {
 				if err == nil {
 					t.Errorf("Expected error for provider '%s', but got none", tc.provider)

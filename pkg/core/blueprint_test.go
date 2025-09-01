@@ -82,7 +82,7 @@ func TestSanitizeContainerName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := sanitizeContainerName(tt.input)
 			assert.Equal(t, tt.expected, result)
-			
+
 			// Verify result meets Docker container name requirements
 			assert.LessOrEqual(t, len(result), 20, "name should not exceed max length")
 			assert.NotEmpty(t, result, "name should not be empty")
@@ -93,14 +93,14 @@ func TestSanitizeContainerName(t *testing.T) {
 
 func TestGenerateContainerName(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tests := []struct {
-		name                string
-		account             string
-		projectPath         string
-		projectHash         string
-		isolationPrefix     string
-		expectedPattern     string
+		name            string
+		account         string
+		projectPath     string
+		projectHash     string
+		isolationPrefix string
+		expectedPattern string
 	}{
 		{
 			name:            "basic container name",
@@ -151,7 +151,7 @@ func TestGenerateContainerName(t *testing.T) {
 
 			result := GenerateContainerName(tt.account, tt.projectPath, tt.projectHash)
 			assert.Regexp(t, tt.expectedPattern, result)
-			
+
 			// Verify Docker naming compliance
 			assert.Regexp(t, `^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`, result, "container name should be Docker compliant")
 		})
@@ -160,14 +160,14 @@ func TestGenerateContainerName(t *testing.T) {
 
 func TestGenerateDiscoveryContainerName(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	tests := []struct {
-		name                string
-		account             string
-		projectPath         string
-		projectHash         string
-		isolationPrefix     string
-		expectedPattern     string
+		name            string
+		account         string
+		projectPath     string
+		projectHash     string
+		isolationPrefix string
+		expectedPattern string
 	}{
 		{
 			name:            "basic discovery container name",
@@ -179,7 +179,7 @@ func TestGenerateDiscoveryContainerName(t *testing.T) {
 		{
 			name:            "with isolation prefix",
 			account:         "testuser",
-			projectPath:     "/home/user/myproject", 
+			projectPath:     "/home/user/myproject",
 			projectHash:     "def456",
 			isolationPrefix: "discovery-test",
 			expectedPattern: "^discovery-test-reactor-discovery-testuser-myproject-def456$",
@@ -204,10 +204,10 @@ func TestGenerateDiscoveryContainerName(t *testing.T) {
 
 			result := GenerateDiscoveryContainerName(tt.account, tt.projectPath, tt.projectHash)
 			assert.Regexp(t, tt.expectedPattern, result)
-			
+
 			// Verify Docker naming compliance
 			assert.Regexp(t, `^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`, result, "discovery container name should be Docker compliant")
-			
+
 			// Verify discovery containers always have "discovery" in the name
 			assert.Contains(t, result, "discovery", "discovery container names should contain 'discovery'")
 		})
@@ -216,7 +216,7 @@ func TestGenerateDiscoveryContainerName(t *testing.T) {
 
 func TestNewContainerBlueprint(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	// Create test resolved config
 	resolved := &config.ResolvedConfig{
 		Account:     "testuser",
@@ -234,7 +234,7 @@ func TestNewContainerBlueprint(t *testing.T) {
 		},
 		{
 			Source: "/host/path/data",
-			Target: "/container/data", 
+			Target: "/container/data",
 			Type:   "bind",
 		},
 	}
@@ -246,7 +246,7 @@ func TestNewContainerBlueprint(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                   string
+		name                  string
 		isDiscovery           bool
 		dockerHostIntegration bool
 		isolationPrefix       string
@@ -255,45 +255,45 @@ func TestNewContainerBlueprint(t *testing.T) {
 		expectedEnvironment   int
 	}{
 		{
-			name:                 "regular container",
-			isDiscovery:          false,
+			name:                  "regular container",
+			isDiscovery:           false,
 			dockerHostIntegration: false,
-			expectedNamePattern: "^reactor-testuser-testproject-testhash123$",
-			expectedDockerMounts: 2, // 2 mount specs
-			expectedEnvironment:  0, // no special env vars
+			expectedNamePattern:   "^reactor-testuser-testproject-testhash123$",
+			expectedDockerMounts:  2, // 2 mount specs
+			expectedEnvironment:   0, // no special env vars
 		},
 		{
-			name:                 "discovery container (no mounts)",
-			isDiscovery:          true,
+			name:                  "discovery container (no mounts)",
+			isDiscovery:           true,
 			dockerHostIntegration: false,
-			expectedNamePattern: "^reactor-discovery-testuser-testproject-testhash123$",
-			expectedDockerMounts: 0, // discovery mode has no mounts
-			expectedEnvironment:  0, // no special env vars
+			expectedNamePattern:   "^reactor-discovery-testuser-testproject-testhash123$",
+			expectedDockerMounts:  0, // discovery mode has no mounts
+			expectedEnvironment:   0, // no special env vars
 		},
 		{
-			name:                 "regular container with Docker host integration",
-			isDiscovery:          false,
+			name:                  "regular container with Docker host integration",
+			isDiscovery:           false,
 			dockerHostIntegration: true,
-			expectedNamePattern: "^reactor-testuser-testproject-testhash123$",
-			expectedDockerMounts: 3, // 2 mount specs + Docker socket
-			expectedEnvironment:  1, // REACTOR_DOCKER_HOST_INTEGRATION=true
+			expectedNamePattern:   "^reactor-testuser-testproject-testhash123$",
+			expectedDockerMounts:  3, // 2 mount specs + Docker socket
+			expectedEnvironment:   1, // REACTOR_DOCKER_HOST_INTEGRATION=true
 		},
 		{
-			name:                 "discovery with Docker host integration",
-			isDiscovery:          true,
+			name:                  "discovery with Docker host integration",
+			isDiscovery:           true,
 			dockerHostIntegration: true,
-			expectedNamePattern: "^reactor-discovery-testuser-testproject-testhash123$",
-			expectedDockerMounts: 1, // only Docker socket mount
-			expectedEnvironment:  1, // REACTOR_DOCKER_HOST_INTEGRATION=true
+			expectedNamePattern:   "^reactor-discovery-testuser-testproject-testhash123$",
+			expectedDockerMounts:  1, // only Docker socket mount
+			expectedEnvironment:   1, // REACTOR_DOCKER_HOST_INTEGRATION=true
 		},
 		{
-			name:                 "with isolation prefix",
-			isDiscovery:          false,
+			name:                  "with isolation prefix",
+			isDiscovery:           false,
 			dockerHostIntegration: false,
-			isolationPrefix:     "test-prefix",
-			expectedNamePattern: "^test-prefix-reactor-testuser-testproject-testhash123$",
-			expectedDockerMounts: 2, // 2 mount specs
-			expectedEnvironment:  0, // no special env vars
+			isolationPrefix:       "test-prefix",
+			expectedNamePattern:   "^test-prefix-reactor-testuser-testproject-testhash123$",
+			expectedDockerMounts:  2, // 2 mount specs
+			expectedEnvironment:   0, // no special env vars
 		},
 	}
 
@@ -310,23 +310,23 @@ func TestNewContainerBlueprint(t *testing.T) {
 
 			// Verify container name
 			assert.Regexp(t, tt.expectedNamePattern, blueprint.Name)
-			
+
 			// Verify basic properties
 			assert.Equal(t, "test-image:latest", blueprint.Image)
 			assert.Equal(t, []string{"/bin/bash"}, blueprint.Command)
 			assert.Equal(t, "/workspace", blueprint.WorkDir)
 			assert.Equal(t, "claude", blueprint.User)
 			assert.Equal(t, "bridge", blueprint.NetworkMode)
-			
+
 			// Verify port mappings
 			assert.Equal(t, portMappings, blueprint.PortMappings)
-			
+
 			// Verify mounts count
 			assert.Len(t, blueprint.Mounts, tt.expectedDockerMounts)
-			
+
 			// Verify environment count
 			assert.Len(t, blueprint.Environment, tt.expectedEnvironment)
-			
+
 			// Verify Docker host integration environment
 			if tt.dockerHostIntegration {
 				assert.Contains(t, blueprint.Environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
@@ -335,7 +335,7 @@ func TestNewContainerBlueprint(t *testing.T) {
 				assert.NotContains(t, blueprint.Environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 				assert.NotContains(t, blueprint.Mounts, "/var/run/docker.sock:/var/run/docker.sock:bind")
 			}
-			
+
 			// Verify mount format for non-discovery containers
 			if !tt.isDiscovery {
 				expectedMounts := []string{
@@ -379,7 +379,7 @@ func TestContainerBlueprintToContainerSpec(t *testing.T) {
 	assert.Equal(t, blueprint.Environment, spec.Environment)
 	assert.Equal(t, blueprint.Mounts, spec.Mounts)
 	assert.Equal(t, blueprint.NetworkMode, spec.NetworkMode)
-	
+
 	// Verify port mappings conversion
 	require.Len(t, spec.PortMappings, 2)
 	assert.Equal(t, 8080, spec.PortMappings[0].HostPort)
@@ -390,7 +390,7 @@ func TestContainerBlueprintToContainerSpec(t *testing.T) {
 
 func TestContainerBlueprintValidation_EdgeCases(t *testing.T) {
 	testutil.WithIsolatedHome(t)
-	
+
 	// Test with minimal config
 	resolved := &config.ResolvedConfig{
 		Account:     "",
@@ -407,7 +407,7 @@ func TestContainerBlueprintValidation_EdgeCases(t *testing.T) {
 	assert.Equal(t, []string{"/bin/bash"}, blueprint.Command)
 	assert.Equal(t, "/workspace", blueprint.WorkDir)
 	assert.Equal(t, "claude", blueprint.User)
-	
+
 	// Should convert to valid Docker spec
 	spec := blueprint.ToContainerSpec()
 	assert.NotNil(t, spec)

@@ -18,7 +18,7 @@ func TestAutoCleanupTestContainers(t *testing.T) {
 
 	// Clear isolation prefix
 	_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
-	
+
 	err := AutoCleanupTestContainers()
 	if err != nil {
 		t.Errorf("AutoCleanupTestContainers should not error when no prefix set: %v", err)
@@ -26,7 +26,7 @@ func TestAutoCleanupTestContainers(t *testing.T) {
 
 	// Test with isolation prefix set
 	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", "test-cleanup-test")
-	
+
 	// This should not error even if Docker is not available
 	err = AutoCleanupTestContainers()
 	if err != nil {

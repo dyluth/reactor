@@ -32,23 +32,23 @@ type PortMapping struct {
 // parsePortMappings parses and validates port mapping strings in the format "host:container"
 func parsePortMappings(portStrings []string) ([]PortMapping, error) {
 	var mappings []PortMapping
-	
+
 	for _, portStr := range portStrings {
 		parts := strings.Split(portStr, ":")
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid port mapping format '%s': expected 'host:container'", portStr)
 		}
-		
+
 		hostPort, err := strconv.Atoi(parts[0])
 		if err != nil {
 			return nil, fmt.Errorf("invalid host port '%s': must be a number", parts[0])
 		}
-		
+
 		containerPort, err := strconv.Atoi(parts[1])
 		if err != nil {
 			return nil, fmt.Errorf("invalid container port '%s': must be a number", parts[1])
 		}
-		
+
 		// Validate port ranges
 		if hostPort < 1 || hostPort > 65535 {
 			return nil, fmt.Errorf("host port %d is out of valid range (1-65535)", hostPort)
@@ -56,20 +56,20 @@ func parsePortMappings(portStrings []string) ([]PortMapping, error) {
 		if containerPort < 1 || containerPort > 65535 {
 			return nil, fmt.Errorf("container port %d is out of valid range (1-65535)", containerPort)
 		}
-		
+
 		mappings = append(mappings, PortMapping{
 			HostPort:      hostPort,
 			ContainerPort: containerPort,
 		})
 	}
-	
+
 	return mappings, nil
 }
 
 // checkPortConflicts checks if any of the host ports are already in use
 func checkPortConflicts(mappings []PortMapping) []int {
 	var conflictPorts []int
-	
+
 	for _, pm := range mappings {
 		// Try to listen on the host port briefly to check if it's available
 		addr := fmt.Sprintf(":%d", pm.HostPort)
@@ -89,7 +89,7 @@ func checkPortConflicts(mappings []PortMapping) []int {
 			}
 		}
 	}
-	
+
 	return conflictPorts
 }
 
@@ -503,7 +503,7 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 			ContainerPort: pm.ContainerPort,
 		}
 	}
-	
+
 	blueprint := core.NewContainerBlueprint(resolved, mounts, discoveryMode, dockerHostIntegration, corePortMappings)
 	containerSpec := blueprint.ToContainerSpec()
 
@@ -946,7 +946,7 @@ func sessionsCleanHandler(cmd *cobra.Command, args []string) error {
 	removedCount := 0
 	for _, container := range containers {
 		fmt.Printf("Removing container: %s ... ", container.Name)
-		
+
 		// Use standard container removal
 		err := dockerService.RemoveContainer(ctx, container.ID)
 		if err != nil {

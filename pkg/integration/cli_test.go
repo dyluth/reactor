@@ -16,7 +16,7 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	// Build reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
 	defer func() { _ = os.Remove(reactorBinary) }()
@@ -223,7 +223,7 @@ func TestReactorConfigOperations(t *testing.T) {
 func TestContainerNaming(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 	defer func() { _ = os.Remove(reactorBinary) }()
 

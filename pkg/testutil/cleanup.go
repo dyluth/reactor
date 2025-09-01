@@ -45,7 +45,7 @@ func isSafeToRemove(t *testing.T, path string) bool {
 	// We need to check if the test name appears anywhere in the path components.
 	sanitizedTestName := strings.ReplaceAll(t.Name(), "/", "_")
 	pathContainsTestName := false
-	
+
 	// Check all path components from the temp dir down
 	relPath, err := filepath.Rel(evalTempDir, evalPath)
 	if err == nil {
@@ -57,7 +57,7 @@ func isSafeToRemove(t *testing.T, path string) bool {
 			}
 		}
 	}
-	
+
 	if !pathContainsTestName {
 		t.Logf("Safety Check Failed: Path does not contain sanitized test name '%s' in any component. Path: %s", sanitizedTestName, evalPath)
 		return false
@@ -96,7 +96,7 @@ func forceRemoveAll(t *testing.T, path string) error {
 	if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
 		t.Logf("Force removing directory %s using Docker cleaner container", path)
 	}
-	
+
 	// Attempt to pull alpine image (this will be fast if already present)
 	if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
 		t.Logf("Ensuring alpine image is available for cleanup...")
@@ -106,7 +106,7 @@ func forceRemoveAll(t *testing.T, path string) error {
 		t.Fatalf("Failed to pull alpine image for cleanup: %v", err)
 	}
 	defer func() { _ = pullReader.Close() }()
-	
+
 	// Drain the pull response to complete the operation
 	buffer := make([]byte, 1024)
 	for {
@@ -177,14 +177,14 @@ func RobustRemoveAll(t *testing.T, path string) error {
 			if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
 				t.Logf("Standard removal failed with permission error, attempting force removal: %v", err)
 			}
-			
+
 			// Fallback: force removal using Docker cleaner container
 			if err := forceRemoveAll(t, path); err != nil {
 				return fmt.Errorf("both standard and force removal failed: %w", err)
 			}
 			return nil
 		}
-		
+
 		// Other types of errors should be propagated
 		return fmt.Errorf("standard removal failed: %w", err)
 	}

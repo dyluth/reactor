@@ -10,9 +10,9 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // MockDockerClient implements DockerClient interface for testing
@@ -291,13 +291,13 @@ func TestCreateContainer_Success(t *testing.T) {
 
 	// Test data
 	spec := &ContainerSpec{
-		Name:    "test-container",
-		Image:   "test-image:latest",
-		Command: []string{"echo", "hello"},
-		WorkDir: "/app",
-		User:    "root",
+		Name:        "test-container",
+		Image:       "test-image:latest",
+		Command:     []string{"echo", "hello"},
+		WorkDir:     "/app",
+		User:        "root",
 		Environment: []string{"ENV=test"},
-		Mounts:   []string{"/host:/container:rw"},
+		Mounts:      []string{"/host:/container:rw"},
 		PortMappings: []PortMapping{
 			{HostPort: 8080, ContainerPort: 80},
 		},
@@ -655,7 +655,7 @@ func TestListReactorContainers_Success(t *testing.T) {
 			Image: "ghcr.io/dyluth/reactor/base:latest",
 		},
 		{
-			ID:    "reactor-id-2", 
+			ID:    "reactor-id-2",
 			Names: []string{"/reactor-user-other-def456"},
 			State: "exited",
 			Image: "ghcr.io/dyluth/reactor/python:latest",
@@ -705,7 +705,7 @@ func TestListReactorContainers_WithIsolationPrefix(t *testing.T) {
 		{
 			ID:    "reactor-id-2",
 			Names: []string{"/reactor-user-project-def456"}, // No prefix
-			State: "running", 
+			State: "running",
 			Image: "ghcr.io/dyluth/reactor/base:latest",
 		},
 	}
@@ -799,21 +799,21 @@ func TestIsReactorContainer(t *testing.T) {
 		{"basic reactor container", "reactor-user-project-abc123", true, ""},
 		{"reactor with long hash", "reactor-user-myproject-1234567890abcdef", true, ""},
 		{"reactor with special chars in project", "reactor-user-my-special-project-abc123", true, ""},
-		
+
 		// With isolation prefix
 		{"with isolation prefix", "test-prefix-reactor-user-project-abc123", true, "test-prefix"},
 		{"different prefix", "ci-reactor-user-project-abc123", true, "ci"},
-		
+
 		// Non-reactor containers
 		{"not reactor", "nginx", false, ""},
 		{"starts with reactor but invalid", "reactor-invalid", false, ""},
 		{"reactor in middle", "some-reactor-container", false, ""},
 		{"empty name", "", false, ""},
-		
+
 		// Edge cases
 		{"reactor with minimum parts", "reactor-a-b-c", true, ""},
 		{"reactor with many parts", "reactor-user-my-complex-project-name-abc123", true, ""},
-		
+
 		// Isolation prefix edge cases
 		{"prefix but no reactor", "test-prefix-nginx", false, "test-prefix"},
 		{"wrong prefix", "wrong-reactor-user-project-abc123", false, "test-prefix"},
@@ -836,12 +836,12 @@ func TestGenerateContainerNameForProject(t *testing.T) {
 	service := NewServiceWithClient(&MockDockerClient{})
 
 	testCases := []struct {
-		name           string
-		account        string
-		projectPath    string
-		projectHash    string
+		name            string
+		account         string
+		projectPath     string
+		projectHash     string
 		isolationPrefix string
-		expected       string
+		expected        string
 	}{
 		{
 			name:        "simple project",
@@ -866,7 +866,7 @@ func TestGenerateContainerNameForProject(t *testing.T) {
 		},
 		{
 			name:            "with isolation prefix",
-			account:         "user", 
+			account:         "user",
 			projectPath:     "/home/user/myproject",
 			projectHash:     "abc123",
 			isolationPrefix: "test",
@@ -913,7 +913,7 @@ func TestSanitizeContainerName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := service.sanitizeContainerName(tc.input)
 			assert.Equal(t, tc.expected, result)
-			
+
 			// Verify result follows Docker naming rules
 			if result != "" {
 				// Should start with alphanumeric
@@ -976,14 +976,14 @@ func TestNewTerminalState(t *testing.T) {
 
 func TestTerminalState_GetTerminalSize(t *testing.T) {
 	state := NewTerminalState()
-	
+
 	// Test getting terminal size (should not panic even if not a terminal)
 	size, err := state.GetTerminalSize()
 	// Should always succeed with default values if not a terminal
 	assert.NoError(t, err)
-	assert.True(t, size.Rows > 0, "Rows should be positive: %d", size.Rows)  
+	assert.True(t, size.Rows > 0, "Rows should be positive: %d", size.Rows)
 	assert.True(t, size.Cols > 0, "Cols should be positive: %d", size.Cols)
-	
+
 	// Default fallback values when not in terminal
 	if size.Rows == 24 && size.Cols == 80 {
 		t.Log("Using default terminal size (not in actual terminal)")

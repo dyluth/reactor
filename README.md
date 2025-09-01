@@ -119,19 +119,52 @@ reactor sessions clean      # Clean up test containers
 
 ## Development
 
-### Building Reactor CLI
+### Getting Started with Development
 ```bash
-# Build from source
+# Clone and set up
 git clone https://github.com/dyluth/reactor.git
 cd reactor
+
+# See all available targets  
+make
+
+# Quick development validation
+make check          # fmt + lint + test
+
+# Full CI validation (recommended before commits)
+make ci             # deps + fmt + lint + test + coverage
+
+# Build binary
 make build
-
-# Run tests
-make test
-
-# Run linter
-make lint
 ```
+
+### Build System Targets
+
+**Key Targets:**
+- `make` - Show all available targets and usage examples
+- `make ci` - 🎯 Complete CI validation (deps + fmt + lint + test + coverage)
+- `make check` - ⚡ Quick validation for development (fmt + lint + test)
+- `make build` - 🔨 Build reactor binary
+- `make test-isolated` - 🧪 Run all tests with isolation (recommended)
+
+**Development Workflow:**
+```bash
+# During development - fast feedback
+make check
+
+# Before committing - comprehensive validation
+make ci
+
+# Build for testing
+make build
+```
+
+**Additional Targets:**
+- `make test-unit` - Unit tests only
+- `make test-integration` - Integration tests only  
+- `make test-coverage-isolated` - Tests with coverage report
+- `make docker-images` - Build all container images
+- `make clean` - Remove build artifacts
 
 ### Building Container Images
 ```bash

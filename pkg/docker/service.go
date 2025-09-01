@@ -131,15 +131,15 @@ func (s *Service) CreateContainer(ctx context.Context, spec *ContainerSpec) (Con
 	// Create port bindings for container and host configuration
 	exposedPorts := nat.PortSet{}
 	portBindings := nat.PortMap{}
-	
+
 	for _, pm := range spec.PortMappings {
 		hostPortStr := strconv.Itoa(pm.HostPort)
-		
+
 		containerPort, err := nat.NewPort("tcp", strconv.Itoa(pm.ContainerPort))
 		if err != nil {
 			return ContainerInfo{}, fmt.Errorf("invalid container port %d: %w", pm.ContainerPort, err)
 		}
-		
+
 		exposedPorts[containerPort] = struct{}{}
 		portBindings[containerPort] = []nat.PortBinding{
 			{

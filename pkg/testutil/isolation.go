@@ -15,10 +15,11 @@ import (
 // environment without depending on the actual user's home directory.
 //
 // Usage:
-//   func TestSomething(t *testing.T) {
-//       testutil.WithIsolatedHome(t)
-//       // Test code that depends on HOME directory
-//   }
+//
+//	func TestSomething(t *testing.T) {
+//	    testutil.WithIsolatedHome(t)
+//	    // Test code that depends on HOME directory
+//	}
 func WithIsolatedHome(t *testing.T) string {
 	t.Helper()
 
@@ -35,10 +36,11 @@ func WithIsolatedHome(t *testing.T) string {
 // workspace directory for tests that need both. Returns both paths.
 //
 // Usage:
-//   func TestSomething(t *testing.T) {
-//       homeDir, workspaceDir := testutil.WithIsolatedWorkspace(t)
-//       // Test code that needs both home and workspace isolation
-//   }
+//
+//	func TestSomething(t *testing.T) {
+//	    homeDir, workspaceDir := testutil.WithIsolatedWorkspace(t)
+//	    // Test code that needs both home and workspace isolation
+//	}
 func WithIsolatedWorkspace(t *testing.T) (homeDir, workspaceDir string) {
 	t.Helper()
 
@@ -56,9 +58,10 @@ func WithIsolatedWorkspace(t *testing.T) (homeDir, workspaceDir string) {
 // differences between different operating systems (e.g., /var vs /private/var on macOS).
 //
 // Usage:
-//   expected := testutil.CanonicalPath(t, expectedPath)
-//   actual := testutil.CanonicalPath(t, actualPath)
-//   assert.Equal(t, expected, actual)
+//
+//	expected := testutil.CanonicalPath(t, expectedPath)
+//	actual := testutil.CanonicalPath(t, actualPath)
+//	assert.Equal(t, expected, actual)
 func CanonicalPath(t *testing.T, path string) string {
 	t.Helper()
 
@@ -88,7 +91,8 @@ func CanonicalPath(t *testing.T, path string) string {
 // symlink differences across operating systems.
 //
 // Usage:
-//   testutil.AssertPathsEqual(t, expectedPath, actualPath, "project root should match")
+//
+//	testutil.AssertPathsEqual(t, expectedPath, actualPath, "project root should match")
 func AssertPathsEqual(t *testing.T, expected, actual, message string) {
 	t.Helper()
 
@@ -102,22 +106,23 @@ func AssertPathsEqual(t *testing.T, expected, actual, message string) {
 }
 
 // SetupIsolatedTest provides complete test isolation including HOME directory,
-// workspace directory, and robust cleanup for Docker-created files. This is the most 
+// workspace directory, and robust cleanup for Docker-created files. This is the most
 // comprehensive test isolation helper.
 //
 // The cleanup function now uses RobustRemoveAll which handles permission issues
 // caused by Docker containers creating files with different ownership.
 //
 // Usage:
-//   func TestSomething(t *testing.T) {
-//       homeDir, workspaceDir, cleanup := testutil.SetupIsolatedTest(t)
-//       defer cleanup() // Recommended for tests that use Docker
-//       
-//       // Change to workspace directory for the test
-//       originalWD, _ := os.Getwd()
-//       os.Chdir(workspaceDir)
-//       defer os.Chdir(originalWD)
-//   }
+//
+//	func TestSomething(t *testing.T) {
+//	    homeDir, workspaceDir, cleanup := testutil.SetupIsolatedTest(t)
+//	    defer cleanup() // Recommended for tests that use Docker
+//
+//	    // Change to workspace directory for the test
+//	    originalWD, _ := os.Getwd()
+//	    os.Chdir(workspaceDir)
+//	    defer os.Chdir(originalWD)
+//	}
 func SetupIsolatedTest(t *testing.T) (homeDir, workspaceDir string, cleanup func()) {
 	t.Helper()
 
@@ -130,22 +135,22 @@ func SetupIsolatedTest(t *testing.T) (homeDir, workspaceDir string, cleanup func
 	// Create isolated directories manually to avoid conflict between
 	// Go's t.TempDir() cleanup and our Docker-aware RobustRemoveAll
 	tempBase := os.TempDir()
-	
+
 	// Sanitize test name for use in file paths - replace path separators and other invalid chars
 	sanitizedTestName := strings.ReplaceAll(t.Name(), "/", "_")
 	sanitizedTestName = strings.ReplaceAll(sanitizedTestName, "\\", "_") // Windows compatibility
 	testPrefix := fmt.Sprintf("%s_%d_", sanitizedTestName, time.Now().UnixNano())
-	
+
 	homeDir, err = os.MkdirTemp(tempBase, testPrefix+"home_")
 	if err != nil {
 		t.Fatalf("Failed to create isolated home directory: %v", err)
 	}
-	
+
 	workspaceDir, err = os.MkdirTemp(tempBase, testPrefix+"workspace_")
 	if err != nil {
 		t.Fatalf("Failed to create isolated workspace directory: %v", err)
 	}
-	
+
 	// Set HOME environment variable to the temporary directory for this test
 	t.Setenv("HOME", homeDir)
 
@@ -155,12 +160,12 @@ func SetupIsolatedTest(t *testing.T) (homeDir, workspaceDir string, cleanup func
 		if err := os.Chdir(originalWD); err != nil {
 			t.Logf("Warning: Failed to restore original working directory: %v", err)
 		}
-		
+
 		// Use robust removal for both directories - this handles Docker-created files
 		if err := RobustRemoveAll(t, homeDir); err != nil {
 			t.Logf("Warning: Robust cleanup failed for home directory %s: %v", homeDir, err)
 		}
-		
+
 		if err := RobustRemoveAll(t, workspaceDir); err != nil {
 			t.Logf("Warning: Robust cleanup failed for workspace directory %s: %v", workspaceDir, err)
 		}

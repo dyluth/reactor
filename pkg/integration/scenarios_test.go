@@ -14,13 +14,13 @@ func TestEndToEndScenarios(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 
 	t.Run("developer workflow - config and sessions", func(t *testing.T) {
 		// Scenario: Developer creates a new project, initializes reactor, and manages sessions
 		tempDir := createTempDir(t, "developer-workflow")
-		
+
 		// Change to test directory
 		originalWD, _ := os.Getwd()
 		err := os.Chdir(tempDir)
@@ -28,7 +28,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Failed to change to test directory: %v", err)
 		}
 		defer func() { _ = os.Chdir(originalWD) }()
-		
+
 		isolationPrefix := "test-e2e-" + randomString(8)
 		env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}
 
@@ -137,7 +137,7 @@ func TestEndToEndScenarios(t *testing.T) {
 
 	t.Run("multi-project isolation", func(t *testing.T) {
 		// Scenario: Developer works on multiple projects with different configurations
-		
+
 		isolationPrefix := "test-multi-" + randomString(8)
 		env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}
 
@@ -231,7 +231,7 @@ func TestEndToEndScenarios(t *testing.T) {
 
 	t.Run("verbose output scenario", func(t *testing.T) {
 		// Scenario: Developer uses verbose mode to debug configuration issues
-		
+
 		tempDir := createTempDir(t, "verbose-test-project")
 		isolationPrefix := "test-verbose-" + randomString(8)
 		env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}
@@ -290,7 +290,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 
 	t.Run("invalid configuration values", func(t *testing.T) {
@@ -387,7 +387,7 @@ func TestContainerNameGeneration(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 
 	testCases := []struct {
@@ -406,9 +406,9 @@ func TestContainerNameGeneration(t *testing.T) {
 		{
 			name:             "project with special characters",
 			projectName:      "my@project#with$special%chars",
-			isolationPrefix:  "test-special", 
+			isolationPrefix:  "test-special",
 			shouldContain:    []string{"test-special", "my@project#with$special%chars"}, // Should find isolation prefix and original project name in project root path
-			shouldNotContain: []string{}, // The special chars will be in the project root path, so we can't exclude them
+			shouldNotContain: []string{},                                                // The special chars will be in the project root path, so we can't exclude them
 		},
 		{
 			name:            "very long project name",
@@ -421,7 +421,7 @@ func TestContainerNameGeneration(t *testing.T) {
 			projectName:      "my project_with mixed_separators",
 			isolationPrefix:  "test-mixed",
 			shouldContain:    []string{"test-mixed", "my project_with mixed_separators"}, // Should find original name in project root path
-			shouldNotContain: []string{}, // Spaces will be in the project root path, so we can't exclude them
+			shouldNotContain: []string{},                                                 // Spaces will be in the project root path, so we can't exclude them
 		},
 	}
 

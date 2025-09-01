@@ -28,7 +28,7 @@ func TestSecurityFoundations(t *testing.T) {
 
 	t.Run("config_file_permissions", func(t *testing.T) {
 		isolationPrefix := "security-permissions-" + randomSecurityTestString(8)
-		
+
 		// Initialize project
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = testDir
@@ -52,7 +52,7 @@ func TestSecurityFoundations(t *testing.T) {
 
 	t.Run("malicious_config_injection", func(t *testing.T) {
 		isolationPrefix := "security-injection-" + randomSecurityTestString(8)
-		
+
 		// Initialize with default config first
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = testDir
@@ -104,7 +104,7 @@ func TestSecurityFoundations(t *testing.T) {
 
 	t.Run("port_forwarding_validation", func(t *testing.T) {
 		isolationPrefix := "security-ports-" + randomSecurityTestString(8)
-		
+
 		// Initialize project first
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = testDir
@@ -115,12 +115,12 @@ func TestSecurityFoundations(t *testing.T) {
 
 		// Test that invalid port ranges are rejected
 		invalidPorts := []string{
-			"99999:8080",  // Invalid host port
-			"8080:99999",  // Invalid container port
-			"0:8080",      // Invalid host port
-			"8080:0",      // Invalid container port
-			"abc:8080",    // Non-numeric host port
-			"8080:def",    // Non-numeric container port
+			"99999:8080", // Invalid host port
+			"8080:99999", // Invalid container port
+			"0:8080",     // Invalid host port
+			"8080:0",     // Invalid container port
+			"abc:8080",   // Non-numeric host port
+			"8080:def",   // Non-numeric container port
 		}
 
 		for _, portSpec := range invalidPorts {
@@ -129,10 +129,10 @@ func TestSecurityFoundations(t *testing.T) {
 				cmd := exec.Command(reactorBinary, "run", "--port", portSpec, "--", "echo", "test")
 				cmd.Dir = testDir
 				cmd.Env = setupSecurityTestEnv(isolationPrefix)
-				
+
 				// Just run the command directly with a timeout context
 				output, err := cmd.CombinedOutput()
-				
+
 				// Command should fail for invalid ports in most cases
 				if err == nil {
 					t.Logf("Port specification %s was accepted (may be valid)", portSpec)
@@ -226,14 +226,14 @@ func buildReactorForSecurityTest(t *testing.T) string {
 func setupSecurityTestEnv(isolationPrefix string) []string {
 	// Get current environment
 	env := os.Environ()
-	
+
 	// Add isolation prefix
 	env = append(env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-	
+
 	// Ensure essential environment variables are present
 	pathFound := false
 	homeFound := false
-	
+
 	for _, e := range env {
 		if strings.HasPrefix(e, "PATH=") {
 			pathFound = true
@@ -242,7 +242,7 @@ func setupSecurityTestEnv(isolationPrefix string) []string {
 			homeFound = true
 		}
 	}
-	
+
 	// Add missing essential vars with defaults
 	if !pathFound {
 		env = append(env, "PATH="+os.Getenv("PATH"))
@@ -250,7 +250,7 @@ func setupSecurityTestEnv(isolationPrefix string) []string {
 	if !homeFound {
 		env = append(env, "HOME="+os.Getenv("HOME"))
 	}
-	
+
 	return env
 }
 

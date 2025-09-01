@@ -83,7 +83,7 @@ func (b *ContainerBlueprint) ToContainerSpec() *docker.ContainerSpec {
 			ContainerPort: pm.ContainerPort,
 		}
 	}
-	
+
 	return &docker.ContainerSpec{
 		Name:         b.Name,
 		Image:        b.Image,

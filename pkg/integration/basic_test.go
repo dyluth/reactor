@@ -171,15 +171,15 @@ func buildReactorForTest(t *testing.T) string {
 func setupBasicEnv(isolationPrefix string) []string {
 	// Get current environment, which now includes the isolated HOME from testutil.WithIsolatedHome
 	env := os.Environ()
-	
+
 	// Add isolation prefix
 	env = append(env, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
-	
+
 	// Ensure essential environment variables are present
 	pathFound := false
 	homeFound := false
 	userFound := false
-	
+
 	for _, e := range env {
 		if strings.HasPrefix(e, "PATH=") {
 			pathFound = true
@@ -191,7 +191,7 @@ func setupBasicEnv(isolationPrefix string) []string {
 			userFound = true
 		}
 	}
-	
+
 	// Add missing essential vars with defaults
 	if !pathFound {
 		env = append(env, "PATH="+os.Getenv("PATH"))

@@ -18,7 +18,7 @@ func TestDockerIntegration(t *testing.T) {
 	if !isDockerAvailable() {
 		t.Skip("Docker not available, skipping Docker integration tests")
 	}
-	
+
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
@@ -65,7 +65,7 @@ func TestSessionsListOutput(t *testing.T) {
 	if !isDockerAvailable() {
 		t.Skip("Docker not available, skipping sessions list output test")
 	}
-	
+
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
@@ -125,7 +125,7 @@ func TestContainerNameSanitization(t *testing.T) {
 	// We can test this without Docker by examining config output
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 
 	testCases := []struct {
@@ -194,7 +194,7 @@ func TestContainerNameSanitization(t *testing.T) {
 func TestErrorHandling(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 
 	t.Run("sessions attach non-existent container", func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestErrorHandling(t *testing.T) {
 func TestIsolationPrefix(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-	
+
 	reactorBinary := buildReactorBinary(t)
 
 	t.Run("isolation prefix in container names", func(t *testing.T) {
