@@ -3,6 +3,7 @@ package integration
 import (
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -117,12 +118,24 @@ func TestReactorConfigOperations(t *testing.T) {
 		}
 
 		outputStr := string(output)
+		
+		// Get current username for dynamic test validation
+		currentUser := os.Getenv("USER")
+		if currentUser == "" {
+			// Fallback for systems where USER is not set
+			if u, err := user.Current(); err == nil {
+				currentUser = u.Username
+			} else {
+				currentUser = "unknown"
+			}
+		}
+		
 		expectedStrings := []string{
 			"Created directory:",
 			"Initialized project configuration",
 			"Default configuration:",
 			"provider: claude",
-			"account:  cam",
+			"account:  " + currentUser,
 		}
 
 		for _, expected := range expectedStrings {

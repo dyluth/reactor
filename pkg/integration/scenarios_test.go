@@ -3,6 +3,7 @@ package integration
 import (
 	"os"
 	"os/exec"
+	"os/user"
 	"strings"
 	"testing"
 
@@ -57,9 +58,20 @@ func TestEndToEndScenarios(t *testing.T) {
 		}
 
 		outputStr := string(output)
+		// Get current username for dynamic test validation
+		currentUser := os.Getenv("USER")
+		if currentUser == "" {
+			// Fallback for systems where USER is not set
+			if u, err := user.Current(); err == nil {
+				currentUser = u.Username
+			} else {
+				currentUser = "unknown"
+			}
+		}
+
 		requiredConfigItems := []string{
 			"provider: claude",
-			"account:  cam",
+			"account:  " + currentUser,
 			"project hash:",
 		}
 
