@@ -27,7 +27,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to change to test directory: %v", err)
 		}
-		defer os.Chdir(originalWD)
+		defer func() { _ = os.Chdir(originalWD) }()
 		
 		isolationPrefix := "test-e2e-" + randomString(8)
 		env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}

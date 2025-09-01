@@ -85,7 +85,7 @@ func forceRemoveAll(t *testing.T, path string) error {
 	if err != nil {
 		t.Fatalf("Failed to create Docker client for force cleanup: %v", err)
 	}
-	defer dockerClient.Close()
+	defer func() { _ = dockerClient.Close() }()
 
 	// Ensure we can connect to Docker daemon
 	if _, err := dockerClient.Ping(ctx); err != nil {
@@ -93,15 +93,19 @@ func forceRemoveAll(t *testing.T, path string) error {
 	}
 
 	// Pull alpine image if not available (minimal logging to avoid test noise)
-	t.Logf("Force removing directory %s using Docker cleaner container", path)
+	if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
+		t.Logf("Force removing directory %s using Docker cleaner container", path)
+	}
 	
 	// Attempt to pull alpine image (this will be fast if already present)
-	t.Logf("Ensuring alpine image is available for cleanup...")
+	if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
+		t.Logf("Ensuring alpine image is available for cleanup...")
+	}
 	pullReader, err := dockerClient.ImagePull(ctx, "alpine:latest", types.ImagePullOptions{})
 	if err != nil {
 		t.Fatalf("Failed to pull alpine image for cleanup: %v", err)
 	}
-	defer pullReader.Close()
+	defer func() { _ = pullReader.Close() }()
 	
 	// Drain the pull response to complete the operation
 	buffer := make([]byte, 1024)
@@ -132,7 +136,7 @@ func forceRemoveAll(t *testing.T, path string) error {
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		dockerClient.ContainerRemove(cleanupCtx, containerResp.ID, container.RemoveOptions{Force: true})
+		_ = dockerClient.ContainerRemove(cleanupCtx, containerResp.ID, container.RemoveOptions{Force: true})
 	}()
 
 	// Start the container
@@ -153,7 +157,9 @@ func forceRemoveAll(t *testing.T, path string) error {
 		t.Fatalf("Timeout waiting for cleaner container to complete")
 	}
 
-	t.Logf("Successfully force-removed directory using Docker cleaner container")
+	if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
+		t.Logf("Successfully force-removed directory using Docker cleaner container")
+	}
 	return nil
 }
 
@@ -167,7 +173,10 @@ func RobustRemoveAll(t *testing.T, path string) error {
 	if err := os.RemoveAll(path); err != nil {
 		// Check if this is a permission error that warrants force removal
 		if os.IsPermission(err) {
-			t.Logf("Standard removal failed with permission error, attempting force removal: %v", err)
+			// Use verbose logging only when explicitly requested
+			if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
+				t.Logf("Standard removal failed with permission error, attempting force removal: %v", err)
+			}
 			
 			// Fallback: force removal using Docker cleaner container
 			if err := forceRemoveAll(t, path); err != nil {

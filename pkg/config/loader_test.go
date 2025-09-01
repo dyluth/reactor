@@ -132,7 +132,7 @@ image: base`
 		}
 		
 		// Clean up permissions after test
-		defer os.Chmod(configPath, 0600)
+		defer func() { _ = os.Chmod(configPath, 0600) }()
 
 		_, err = LoadProjectConfig(configPath)
 		if err == nil {
@@ -337,6 +337,6 @@ func TestCheckDependencies(t *testing.T) {
 		}()
 		
 		// This may or may not return an error depending on system
-		CheckDependencies()
+		_ = CheckDependencies()
 	})
 }

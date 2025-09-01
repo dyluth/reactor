@@ -24,7 +24,7 @@ func TestSecurityFoundations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to change to test directory: %v", err)
 	}
-	defer os.Chdir(originalWD)
+	defer func() { _ = os.Chdir(originalWD) }()
 
 	t.Run("config_file_permissions", func(t *testing.T) {
 		isolationPrefix := "security-permissions-" + randomSecurityTestString(8)

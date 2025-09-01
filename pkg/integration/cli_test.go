@@ -99,7 +99,7 @@ func TestReactorConfigOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to change to test directory: %v", err)
 	}
-	defer os.Chdir(originalWD)
+	defer func() { _ = os.Chdir(originalWD) }()
 
 	isolationPrefix := "test-config-" + randomString(8)
 	env := []string{

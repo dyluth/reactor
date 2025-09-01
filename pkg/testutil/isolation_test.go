@@ -100,6 +100,7 @@ func TestAssertPathsEqual(t *testing.T) {
 				// The test should fail when paths are different, but since we're testing
 				// the testing helper, we expect it to call t.Errorf, not panic
 				// This is just to document expected behavior
+				t.Log("No panic occurred as expected")
 			}
 		}()
 		// This assertion should work (both paths should be equal to themselves)

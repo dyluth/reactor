@@ -146,7 +146,7 @@ func TestGenerateContainerName(t *testing.T) {
 			if tt.isolationPrefix != "" {
 				t.Setenv("REACTOR_ISOLATION_PREFIX", tt.isolationPrefix)
 			} else {
-				os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+				_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 			}
 
 			result := GenerateContainerName(tt.account, tt.projectPath, tt.projectHash)
@@ -199,7 +199,7 @@ func TestGenerateDiscoveryContainerName(t *testing.T) {
 			if tt.isolationPrefix != "" {
 				t.Setenv("REACTOR_ISOLATION_PREFIX", tt.isolationPrefix)
 			} else {
-				os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+				_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 			}
 
 			result := GenerateDiscoveryContainerName(tt.account, tt.projectPath, tt.projectHash)
@@ -303,7 +303,7 @@ func TestNewContainerBlueprint(t *testing.T) {
 			if tt.isolationPrefix != "" {
 				t.Setenv("REACTOR_ISOLATION_PREFIX", tt.isolationPrefix)
 			} else {
-				os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+				_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 			}
 
 			blueprint := NewContainerBlueprint(resolved, mounts, tt.isDiscovery, tt.dockerHostIntegration, portMappings)

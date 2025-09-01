@@ -588,7 +588,7 @@ func TestNewService(t *testing.T) {
 		assert.NotNil(t, service)
 		assert.NotNil(t, service.client)
 		// Clean up
-		service.Close()
+		_ = service.Close()
 	}
 }
 

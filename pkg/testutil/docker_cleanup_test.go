@@ -10,14 +10,14 @@ func TestAutoCleanupTestContainers(t *testing.T) {
 	originalPrefix := os.Getenv("REACTOR_ISOLATION_PREFIX")
 	defer func() {
 		if originalPrefix != "" {
-			os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
+			_ = os.Setenv("REACTOR_ISOLATION_PREFIX", originalPrefix)
 		} else {
-			os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+			_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 		}
 	}()
 
 	// Clear isolation prefix
-	os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+	_ = os.Unsetenv("REACTOR_ISOLATION_PREFIX")
 	
 	err := AutoCleanupTestContainers()
 	if err != nil {
@@ -25,7 +25,7 @@ func TestAutoCleanupTestContainers(t *testing.T) {
 	}
 
 	// Test with isolation prefix set
-	os.Setenv("REACTOR_ISOLATION_PREFIX", "test-cleanup-test")
+	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", "test-cleanup-test")
 	
 	// This should not error even if Docker is not available
 	err = AutoCleanupTestContainers()

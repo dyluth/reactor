@@ -14,10 +14,10 @@ func TestNewService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(originalWd)
+	defer func() { _ = os.Chdir(originalWd) }()
 
 	tempDir := t.TempDir()
-	os.Chdir(tempDir)
+	_ = os.Chdir(tempDir)
 
 	service := NewService()
 	
@@ -36,8 +36,8 @@ func TestService_InitializeProject(t *testing.T) {
 	// Create temp directory and change to it
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	service := NewService()
 
@@ -86,8 +86,8 @@ func TestService_InitializeProject(t *testing.T) {
 func TestService_GetConfigValue(t *testing.T) {
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	// Create test config
 	configPath := GetProjectConfigPath()
@@ -97,7 +97,7 @@ func TestService_GetConfigValue(t *testing.T) {
 		Image:    "python",
 		Danger:   true,
 	}
-	SaveProjectConfig(testConfig, configPath)
+	_ = SaveProjectConfig(testConfig, configPath)
 
 	service := NewService()
 
@@ -137,12 +137,12 @@ func TestService_GetConfigValue(t *testing.T) {
 func TestService_SetConfigValue(t *testing.T) {
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	// Create initial config
 	service := NewService()
-	service.InitializeProject()
+	_ = service.InitializeProject()
 
 	t.Run("set valid provider", func(t *testing.T) {
 		err := service.SetConfigValue("provider", "gemini")
@@ -268,11 +268,11 @@ func TestService_SetConfigValue(t *testing.T) {
 func TestService_LoadConfiguration(t *testing.T) {
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	service := NewService()
-	service.InitializeProject()
+	_ = service.InitializeProject()
 
 	t.Run("load configuration with no overrides", func(t *testing.T) {
 		resolved, err := service.LoadConfiguration("", "", "", false)
@@ -325,7 +325,7 @@ func TestService_LoadConfiguration(t *testing.T) {
 
 	t.Run("load configuration with invalid provider", func(t *testing.T) {
 		// First set an invalid provider in the config
-		service.SetConfigValue("provider", "claude") // Reset to valid
+		_ = service.SetConfigValue("provider", "claude") // Reset to valid
 		
 		// Now try with invalid CLI override (this should fail at resolution, not validation)
 		_, err := service.LoadConfiguration("nonexistent", "", "", false)
@@ -342,11 +342,11 @@ func TestService_LoadConfiguration(t *testing.T) {
 func TestService_ShowConfiguration(t *testing.T) {
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	service := NewService()
-	service.InitializeProject()
+	_ = service.InitializeProject()
 
 	t.Run("show configuration without error", func(t *testing.T) {
 		// We can't easily test output, but we can ensure it doesn't error
@@ -374,12 +374,12 @@ func TestService_ListAccounts(t *testing.T) {
 func TestService_createProjectDirectories(t *testing.T) {
 	tempDir := t.TempDir()
 	originalWd, _ := os.Getwd()
-	defer os.Chdir(originalWd)
-	os.Chdir(tempDir)
+	defer func() { _ = os.Chdir(originalWd) }()
+	_ = os.Chdir(tempDir)
 
 	// Set up isolated reactor home for testing
-	os.Setenv("REACTOR_ISOLATION_PREFIX", "test-service")
-	defer os.Unsetenv("REACTOR_ISOLATION_PREFIX")
+	_ = os.Setenv("REACTOR_ISOLATION_PREFIX", "test-service")
+	defer func() { _ = os.Unsetenv("REACTOR_ISOLATION_PREFIX") }()
 
 	service := NewService()
 	
