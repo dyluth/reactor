@@ -23,7 +23,7 @@ ENV GOROOT=/usr/local/go
 # Install Go development tools as root (they'll be accessible to claude user)
 RUN /usr/local/go/bin/go install golang.org/x/tools/gopls@v0.16.1 && \
     /usr/local/go/bin/go install github.com/go-delve/delve/cmd/dlv@v1.23.1 && \
-    /usr/local/go/bin/go install honnef.co/go/tools/cmd/staticcheck@v0.4.7 && \
+    /usr/local/go/bin/go install honnef.co/go/tools/cmd/staticcheck@latest && \
     /usr/local/go/bin/go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0 && \
     /usr/local/go/bin/go install golang.org/x/tools/cmd/goimports@latest && \
     /usr/local/go/bin/go install github.com/fatih/gomodifytags@v1.16.0 && \
