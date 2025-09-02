@@ -5,15 +5,7 @@ import (
 	"os/user"
 )
 
-// ProjectConfig represents the project-level configuration stored in .reactor.conf
-type ProjectConfig struct {
-	Provider string `yaml:"provider"`         // claude, gemini, or custom
-	Account  string `yaml:"account"`          // account name for isolation
-	Image    string `yaml:"image"`            // base, python, go, or custom image URL
-	Danger   bool   `yaml:"danger,omitempty"` // enable dangerous permissions
-}
-
-// MountPoint defines a directory mount for providers
+// MountPoint defines a directory mount for providers  
 type MountPoint struct {
 	Source string // subdirectory under ~/.reactor/<account>/<project-hash>/
 	Target string // path in container
@@ -65,6 +57,34 @@ var BuiltinImages = map[string]string{
 	"python": "ghcr.io/dyluth/reactor/python:latest",
 	"node":   "ghcr.io/dyluth/reactor/node:latest",
 	"go":     "ghcr.io/dyluth/reactor/go:latest",
+}
+
+// DevContainerConfig represents the structure of a devcontainer.json file
+type DevContainerConfig struct {
+	Name              string                   `json:"name"`
+	Image             string                   `json:"image"`
+	Build             *Build                   `json:"build"`
+	ForwardPorts      []interface{}            `json:"forwardPorts"` // Can be int or string "host:container"
+	RemoteUser        string                   `json:"remoteUser"`
+	PostCreateCommand string                   `json:"postCreateCommand"`
+	Customizations    *Customizations          `json:"customizations"`
+}
+
+// Build defines Docker build properties
+type Build struct {
+	Dockerfile string `json:"dockerfile"`
+	Context    string `json:"context"`
+}
+
+// Customizations block for tool-specific settings
+type Customizations struct {
+	Reactor *ReactorCustomizations `json:"reactor"`
+}
+
+// ReactorCustomizations defines reactor-specific settings
+type ReactorCustomizations struct {
+	Account        string `json:"account"`
+	DefaultCommand string `json:"defaultCommand"`
 }
 
 // GetSystemUsername returns the current system username as default account

@@ -1,99 +1,14 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"github.com/tailscale/hujson"
 )
 
-// LoadProjectConfig loads and parses the .reactor.conf file
-func LoadProjectConfig(configPath string) (*ProjectConfig, error) {
-	// Check if config file exists
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no project configuration found at %s. Run 'reactor config init' to create one", configPath)
-	}
-
-	// Read the config file
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
-	}
-
-	// Parse YAML
-	var config ProjectConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML in %s: %w", configPath, err)
-	}
-
-	// Validate the loaded configuration
-	if err := ValidateProjectConfig(&config); err != nil {
-		return nil, fmt.Errorf("invalid configuration in %s: %w", configPath, err)
-	}
-
-	return &config, nil
-}
-
-// SaveProjectConfig saves a ProjectConfig to the specified path
-func SaveProjectConfig(config *ProjectConfig, configPath string) error {
-	// Validate before saving
-	if err := ValidateProjectConfig(config); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	// Marshal to YAML
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration: %w", err)
-	}
-
-	// Write to file with restrictive permissions
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
-	}
-
-	return nil
-}
-
-// ValidateProjectConfig validates a ProjectConfig struct
-func ValidateProjectConfig(config *ProjectConfig) error {
-	if config == nil {
-		return fmt.Errorf("config cannot be nil")
-	}
-
-	// Validate provider
-	if err := ValidateProvider(config.Provider); err != nil {
-		return fmt.Errorf("invalid provider: %w", err)
-	}
-
-	// Validate account
-	if err := ValidateAccount(config.Account); err != nil {
-		return fmt.Errorf("invalid account: %w", err)
-	}
-
-	// Validate image
-	if err := ValidateImage(config.Image); err != nil {
-		return fmt.Errorf("invalid image: %w", err)
-	}
-
-	return nil
-}
-
-// CreateDefaultProjectConfig creates a ProjectConfig with sensible defaults
-func CreateDefaultProjectConfig() (*ProjectConfig, error) {
-	// Get system username for default account
-	username, err := GetSystemUsername()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get system username: %w", err)
-	}
-
-	return &ProjectConfig{
-		Provider: "claude", // Default to Claude
-		Account:  username, // Use system username
-		Image:    "base",   // Default to base image
-		Danger:   false,    // Default to safe mode
-	}, nil
-}
 
 // CheckDependencies verifies that required system dependencies are available
 func CheckDependencies() error {
@@ -136,4 +51,45 @@ func checkCommand(command string) error {
 	}
 
 	return fmt.Errorf("command %s not found in PATH", command)
+}
+
+// FindDevContainerFile searches for devcontainer.json in the specified directory
+// Search order: .devcontainer/devcontainer.json, then .devcontainer.json
+func FindDevContainerFile(dir string) (string, bool, error) {
+	// First try .devcontainer/devcontainer.json
+	devcontainerPath := filepath.Join(dir, ".devcontainer", "devcontainer.json")
+	if _, err := os.Stat(devcontainerPath); err == nil {
+		return devcontainerPath, true, nil
+	}
+
+	// Then try .devcontainer.json
+	rootPath := filepath.Join(dir, ".devcontainer.json")
+	if _, err := os.Stat(rootPath); err == nil {
+		return rootPath, true, nil
+	}
+
+	return "", false, nil
+}
+
+// LoadDevContainerConfig loads and parses a devcontainer.json file
+func LoadDevContainerConfig(filePath string) (*DevContainerConfig, error) {
+	// Read the file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read devcontainer file %s: %w", filePath, err)
+	}
+
+	// Parse JSONC using hujson to convert to standard JSON
+	standardJSON, err := hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JSONC in %s: %w", filePath, err)
+	}
+
+	// Unmarshal into DevContainerConfig struct
+	var config DevContainerConfig
+	if err := json.Unmarshal(standardJSON, &config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal devcontainer config in %s: %w", filePath, err)
+	}
+
+	return &config, nil
 }

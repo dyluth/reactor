@@ -65,7 +65,9 @@ The goal is to replace the legacy `.reactor.conf` YAML parsing with a robust sys
     1.  **Find `devcontainer.json`:** Search for the configuration file using `FindDevContainerFile`.
     2.  **Handle Not Found:** If no file is found, return an error. `reactor` cannot operate without it.
     3.  **Parse `devcontainer.json`:** If found, parse the file using `LoadDevContainerConfig`.
-    4.  **Populate `ResolvedConfig`:** Create and return the final `ResolvedConfig` struct, populating it directly from the parsed `DevContainerConfig`. This includes all environment settings and our specific extensions (like `account`) from the `customizations.reactor` block.
+    4.  **Map to `ResolvedConfig`:** Transform the parsed `DevContainerConfig` into the canonical `ResolvedConfig` struct. This mapping includes all environment settings and reactor-specific extensions (like `account`) from the `customizations.reactor` block.
+
+*   **Critical Architecture Note:** The data flow is: `devcontainer.json` → `DevContainerConfig` → `ResolvedConfig` → rest of application. The `ResolvedConfig` struct remains the canonical internal data model that decouples our core logic from the configuration source. The `pkg/core` package and `NewContainerBlueprint` function will continue to work with `ResolvedConfig` unchanged.
 
 ### **Task 2.5: Unit Testing**
 
@@ -73,12 +75,16 @@ The goal is to replace the legacy `.reactor.conf` YAML parsing with a robust sys
 *   **Required Tests:**
     *   Test `FindDevContainerFile` for all scenarios (finds in both locations, handles not found).
     *   Test `LoadDevContainerConfig` with valid files, files with comments, and malformed JSON.
-    *   Test the refactored `config.Service` correctly populates the `ResolvedConfig` from a `devcontainer.json`, including the `customizations.reactor.account` key.
+    *   Test the refactored `config.Service` correctly maps `DevContainerConfig` to `ResolvedConfig`, including the `customizations.reactor.account` key and other reactor-specific extensions.
+    *   Test the complete data flow: `devcontainer.json` → `DevContainerConfig` → `ResolvedConfig` transformation.
 
 ## **3. Definition of Done**
 
 This task is complete when:
-*   All new functions are implemented as described.
-*   The `config.Service` is fully refactored to remove all `.reactor.conf` environment logic.
+*   All new functions (`FindDevContainerFile`, `LoadDevContainerConfig`) are implemented as described.
+*   The `config.Service` is fully refactored to use the `devcontainer.json` → `DevContainerConfig` → `ResolvedConfig` data flow.
+*   All legacy `.reactor.conf` environment logic has been removed from the configuration layer.
+*   The `ResolvedConfig` struct remains unchanged and continues to serve as the canonical internal data model.
 *   All new logic is covered by comprehensive unit tests with >80% coverage.
-*   The existing integration tests are updated to use the new configuration loading system and are all passing.
+*   The existing integration tests are updated to use `.devcontainer/devcontainer.json` fixtures and are all passing.
+*   The `pkg/core` package continues to work unchanged with `ResolvedConfig` input.

@@ -66,7 +66,7 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			t.Fatalf("Config init failed: %v\nOutput: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "Initialized project configuration") {
+		if !strings.Contains(string(output), "Initialized devcontainer.json") {
 			t.Errorf("Config init should show success message but got: %s", string(output))
 		}
 
@@ -80,7 +80,7 @@ func TestBasicReactorFunctionality(t *testing.T) {
 		}
 
 		expectedInOutput := []string{
-			"provider: claude",
+			"DevContainer Configuration",
 			"account:",
 			"project root:",
 			"project hash:",
@@ -93,8 +93,8 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			}
 		}
 
-		// Test config get/set
-		cmd = exec.Command(reactorBinary, "config", "set", "provider", "gemini")
+		// Test config set/get (now instructs users to edit devcontainer.json directly)
+		cmd = exec.Command(reactorBinary, "config", "set", "account", "test-account")
 		cmd.Dir = testDir
 		cmd.Env = setupBasicEnv(isolationPrefix)
 		output, err = cmd.CombinedOutput()
@@ -102,7 +102,11 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			t.Fatalf("Config set failed: %v\nOutput: %s", err, string(output))
 		}
 
-		cmd = exec.Command(reactorBinary, "config", "get", "provider")
+		if !strings.Contains(string(output), "customizations.reactor.account") {
+			t.Errorf("Config set should show how to edit devcontainer.json but got: %s", string(output))
+		}
+
+		cmd = exec.Command(reactorBinary, "config", "get", "account")
 		cmd.Dir = testDir
 		cmd.Env = setupBasicEnv(isolationPrefix)
 		output, err = cmd.CombinedOutput()
@@ -110,8 +114,9 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			t.Fatalf("Config get failed: %v\nOutput: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "gemini") {
-			t.Errorf("Config get should return 'gemini' but got: %s", string(output))
+		// Should return the current account (system username by default)
+		if len(strings.TrimSpace(string(output))) == 0 {
+			t.Errorf("Config get should return current account but got empty output: %s", string(output))
 		}
 	})
 

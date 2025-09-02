@@ -117,7 +117,10 @@ lifecycle while keeping your host machine clean.`,
 	cmd.PersistentFlags().Bool("verbose", false, "Enable verbose logging")
 
 	// Add subcommands
-	cmd.AddCommand(newRunCmd())
+	cmd.AddCommand(newUpCmd())
+	cmd.AddCommand(newDownCmd())
+	cmd.AddCommand(newExecCmd())
+	cmd.AddCommand(newBuildCmd())
 	cmd.AddCommand(newSessionsCmd())
 	cmd.AddCommand(newDiffCmd())
 	cmd.AddCommand(newAccountsCmd())
@@ -128,37 +131,92 @@ lifecycle while keeping your host machine clean.`,
 	return cmd
 }
 
-func newRunCmd() *cobra.Command {
+func newUpCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run AI agent in containerized environment",
-		Long: `Run an AI agent in a containerized development environment with
-persistent configuration and session management.
+		Use:   "up",
+		Short: "Start dev container from devcontainer.json",
+		Long: `Start a development container based on the devcontainer.json configuration.
 
-The run command provisions a Docker container with your AI agent and project
-files, then attaches you to an interactive session. Containers are automatically
-reused when possible for fast startup times.
+The up command provisions a Docker container based on the devcontainer.json
+specification found in your project, then attaches you to an interactive 
+session. Containers are automatically reused when possible for fast startup.
 
 Examples:
-  reactor run                              # Use project configuration
-  reactor run --provider claude           # Override provider to claude
-  reactor run --image python --danger     # Use Python image with danger mode
-  reactor run --account work-account      # Use specific account for isolation
+  reactor up                               # Start container from devcontainer.json
+  reactor up --account work-account       # Override account for isolation
+  reactor up --rebuild                     # Force rebuild before starting
 
 For more details, see the full documentation.`,
-		RunE: runCmdHandler,
+		RunE: upCmdHandler,
 	}
 
-	// Add flags
-	cmd.Flags().String("provider", "", "AI provider to use (claude, gemini, custom)")
-	cmd.Flags().String("account", "", "Account for configuration isolation")
-	cmd.Flags().String("image", "", "Container image (base, python, go, or custom URL)")
-	cmd.Flags().Bool("danger", false, "Enable dangerous permissions for AI agent")
+	// Add flags (removed --provider and --image, kept account for override)
+	cmd.Flags().String("account", "", "Override account from devcontainer.json customizations")
+	cmd.Flags().Bool("rebuild", false, "Force rebuild of container image before starting")
 	cmd.Flags().Bool("discovery-mode", false, "Run with no mounts for configuration discovery")
 	cmd.Flags().Bool("docker-host-integration", false, "Mount host Docker socket (DANGEROUS - use only with trusted images)")
 	cmd.Flags().StringSliceP("port", "p", []string{}, "Port forwarding (host:container), can be used multiple times")
 
 	return cmd
+}
+
+func newDownCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "down",
+		Short: "Stop and remove dev container for current project",
+		Long: `Stop and remove the development container for the current project.
+
+This command stops the running container and removes it to free up system
+resources. The container can be recreated with 'reactor up'.
+
+Examples:
+  reactor down                             # Stop and remove current project container
+
+For more details, see the full documentation.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("down command not yet implemented - this will be added in Milestone 2")
+		},
+	}
+}
+
+func newExecCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "exec <command...>",
+		Short: "Execute command in running dev container",
+		Long: `Execute a command inside the running development container.
+
+The container must already be running (started with 'reactor up'). This is
+useful for running tests, builds, or other commands inside the container.
+
+Examples:
+  reactor exec npm test                    # Run npm test inside container
+  reactor exec -- ls -la                  # Run ls command (use -- for flags)
+
+For more details, see the full documentation.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("exec command not yet implemented - this will be added in Milestone 2")
+		},
+	}
+}
+
+func newBuildCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "build",
+		Short: "Build dev container image from devcontainer.json",
+		Long: `Build the development container image based on devcontainer.json.
+
+This command only builds the container image without starting it. Use this
+when you want to pre-build images or verify the build process.
+
+Examples:
+  reactor build                            # Build container image
+  reactor build --no-cache                # Build without using cache
+
+For more details, see the full documentation.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("build command not yet implemented - this will be added in Milestone 2")
+		},
+	}
 }
 
 func newDiffCmd() *cobra.Command {
@@ -395,17 +453,15 @@ func newVersionCmd() *cobra.Command {
 }
 
 // Command handlers
-func runCmdHandler(cmd *cobra.Command, args []string) error {
+func upCmdHandler(cmd *cobra.Command, args []string) error {
 	// Check dependencies first
 	if err := config.CheckDependencies(); err != nil {
 		return err
 	}
 
 	// Get CLI flags
-	provider, _ := cmd.Flags().GetString("provider")
-	account, _ := cmd.Flags().GetString("account")
-	image, _ := cmd.Flags().GetString("image")
-	danger, _ := cmd.Flags().GetBool("danger")
+	accountOverride, _ := cmd.Flags().GetString("account")
+	rebuild, _ := cmd.Flags().GetBool("rebuild")
 	discoveryMode, _ := cmd.Flags().GetBool("discovery-mode")
 	dockerHostIntegration, _ := cmd.Flags().GetBool("docker-host-integration")
 	portMappings, _ := cmd.Flags().GetStringSlice("port")
@@ -446,11 +502,17 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   The container can create, modify, and delete other containers.\n\n")
 	}
 
-	// Load and validate configuration
+	// Load and validate configuration using new devcontainer.json workflow
 	configService := config.NewService()
-	resolved, err := configService.LoadConfiguration(provider, account, image, danger)
+	resolved, err := configService.ResolveConfiguration()
 	if err != nil {
 		return err
+	}
+
+	// Apply account override if provided
+	if accountOverride != "" {
+		resolved.Account = accountOverride
+		// TODO: In future milestones, we might need to recalculate paths when account changes
 	}
 
 	// Display resolved configuration for debugging
@@ -463,6 +525,9 @@ func runCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Danger: %t\n", resolved.Danger)
 		fmt.Printf("  Project: %s\n", resolved.ProjectRoot)
 		fmt.Printf("  Config Dir: %s\n", resolved.ProjectConfigDir)
+		if rebuild {
+			fmt.Printf("  Rebuild: enabled\n")
+		}
 	}
 
 	// Initialize state service for directory validation
@@ -592,7 +657,7 @@ func diffCmdHandler(cmd *cobra.Command, args []string) error {
 
 	// Load configuration to validate project setup
 	configService := config.NewService()
-	resolved, err := configService.LoadConfiguration("", "", "", false)
+	resolved, err := configService.ResolveConfiguration()
 	if err != nil {
 		return err
 	}
@@ -661,24 +726,35 @@ func accountsListHandler(cmd *cobra.Command, args []string) error {
 
 func accountsShowHandler(cmd *cobra.Command, args []string) error {
 	configService := config.NewService()
-	value, err := configService.GetConfigValue("account")
+	resolved, err := configService.ResolveConfiguration()
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Current account: %s\n", value)
+	fmt.Printf("Current account: %s\n", resolved.Account)
 	return nil
 }
 
 func accountsSetHandler(cmd *cobra.Command, args []string) error {
-	account := args[0]
-	configService := config.NewService()
-
-	if err := configService.SetConfigValue("account", account); err != nil {
-		return err
+	// Find the devcontainer.json file to show where to edit
+	configPath, found, err := config.FindDevContainerFile(".")
+	if err != nil {
+		return fmt.Errorf("error finding devcontainer.json: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("no devcontainer.json found. Run 'reactor init' to create one")
 	}
 
-	fmt.Printf("Account set to: %s\n", account)
+	fmt.Printf("To set the account, edit the 'customizations.reactor.account' field in:\n")
+	fmt.Printf("  %s\n\n", configPath)
+	fmt.Printf("Example:\n")
+	fmt.Printf("{\n")
+	fmt.Printf("  \"customizations\": {\n")
+	fmt.Printf("    \"reactor\": {\n")
+	fmt.Printf("      \"account\": \"%s\"\n", args[0])
+	fmt.Printf("    }\n")
+	fmt.Printf("  }\n")
+	fmt.Printf("}\n")
 	return nil
 }
 
@@ -691,25 +767,73 @@ func configGetHandler(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	configService := config.NewService()
 
-	value, err := configService.GetConfigValue(key)
+	// Try to resolve configuration to show current values
+	resolved, err := configService.ResolveConfiguration()
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("%v\n", value)
+	switch key {
+	case "account":
+		fmt.Printf("%s\n", resolved.Account)
+	case "image":
+		fmt.Printf("%s\n", resolved.Image)
+	default:
+		// Find the devcontainer.json file to show where to check
+		configPath, found, findErr := config.FindDevContainerFile(".")
+		if findErr != nil {
+			return fmt.Errorf("error finding devcontainer.json: %w", findErr)
+		}
+		if !found {
+			return fmt.Errorf("no devcontainer.json found")
+		}
+		
+		fmt.Printf("For configuration key '%s', check your devcontainer.json file:\n", key)
+		fmt.Printf("  %s\n", configPath)
+		fmt.Printf("See https://containers.dev/implementors/json_reference/ for available options.\n")
+	}
+
 	return nil
 }
 
 func configSetHandler(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
-
-	configService := config.NewService()
-	if err := configService.SetConfigValue(key, value); err != nil {
-		return err
+	
+	// Find the devcontainer.json file to show where to edit
+	configPath, found, err := config.FindDevContainerFile(".")
+	if err != nil {
+		return fmt.Errorf("error finding devcontainer.json: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("no devcontainer.json found. Run 'reactor init' to create one")
 	}
 
-	fmt.Printf("Set %s = %s\n", key, value)
+	switch key {
+	case "account":
+		fmt.Printf("To set the account, edit the 'customizations.reactor.account' field in:\n")
+		fmt.Printf("  %s\n\n", configPath)
+		fmt.Printf("Example:\n")
+		fmt.Printf("{\n")
+		fmt.Printf("  \"customizations\": {\n")
+		fmt.Printf("    \"reactor\": {\n")
+		fmt.Printf("      \"account\": \"%s\"\n", value)
+		fmt.Printf("    }\n")
+		fmt.Printf("  }\n")
+		fmt.Printf("}\n")
+	case "image":
+		fmt.Printf("To set the image, edit the 'image' field in:\n")
+		fmt.Printf("  %s\n\n", configPath)
+		fmt.Printf("Example:\n")
+		fmt.Printf("{\n")
+		fmt.Printf("  \"image\": \"%s\"\n", value)
+		fmt.Printf("}\n")
+	default:
+		fmt.Printf("To set '%s', edit your devcontainer.json file:\n", key)
+		fmt.Printf("  %s\n", configPath)
+		fmt.Printf("See https://containers.dev/implementors/json_reference/ for available options.\n")
+	}
+
 	return nil
 }
 
@@ -848,7 +972,7 @@ func sessionsAttachHandler(cmd *cobra.Command, args []string) error {
 		// Auto-attach to current project container
 		// Load configuration to get project info
 		configService := config.NewService()
-		resolved, err := configService.LoadConfiguration("", "", "", false)
+		resolved, err := configService.ResolveConfiguration()
 		if err != nil {
 			return fmt.Errorf("failed to load project configuration: %w", err)
 		}
