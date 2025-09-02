@@ -1,46 +1,58 @@
 
-WARNING: this needs more work to consider as a final document - it needs to follow the structure of the `000_Project Charter template.md`
+# **Feature Design: `reactor-fabric` - A Container-Native AI Agent Orchestrator**
 
-# Design: `Reactor-Fabric` - The AI Orchestration System
+Version: 2.0
+Status: Proposed
+Date: 2025-08-28
 
-## 1. Goal
+## **1. Vision & Strategy**
 
-`Reactor-Fabric` is a standalone orchestration engine that manages a suite of specialized, containerized AI agents (MCP services). It is designed to enable complex, collaborative workflows where multiple AI specialists work in concert to achieve a goal. This design is based entirely on the detailed specification in `ai-prompts/6-distributed-mcp-orchestration-system.md`.
+### **1.1. High-Level Summary**
 
-## 2. Core Functionality
+`reactor-fabric` is a standalone, **container-native orchestration engine** designed to manage a suite of specialized, tool-equipped AI agents. It is positioned to fill a major gap in the current market, which is dominated by Python-centric, LLM-chaining frameworks.
 
--   **Configuration-Driven**: It is driven by a `suite.yaml` file which declaratively defines the suite of available AI services.
--   **On-Demand Spawning**: It dynamically spawns and tears down agent containers based on client requests.
--   **Client Agnostic**: It can serve any MCP-compliant client. A `Reactor` instance can act as a client to the fabric.
--   **Contextual Awareness**: It passes the client's file system context to the agents it spawns, ensuring they operate on the correct files.
--   **Concurrency**: It is designed to handle multiple, concurrent client connections, each with its own isolated session and context.
--   **Advanced Lifecycle Management**: It implements the sophisticated container lifecycle strategies (`fresh_per_call`, `reuse_per_session`, `smart_refresh`) outlined in `docs/CONTAINER_STRATEGIES.md`.
+The core vision is to provide a robust, scalable, and developer-friendly platform for automating complex software engineering tasks by leveraging the power of containerization and the familiar paradigms of DevOps and Platform Engineering.
 
-## 3. What It Is NOT
+### **1.2. Core Problem Solved**
 
--   It is **not** an interactive development tool. A developer would not typically run `reactor-fabric` to work on their code directly.
--   It does **not** manage a single development environment. Its purpose is to manage a *fleet* of them.
+Existing multi-agent frameworks are powerful but share a fundamental limitation: they are **LLM-centric**, designed primarily to orchestrate Python functions. This makes them a poor fit for automating the full spectrum of the software development lifecycle, which relies on a diverse ecosystem of compilers, CLIs, and infrastructure tools (`git`, `docker`, `kubectl`, `terraform`).
 
-## 4. Command-Line Interface (CLI)
+`reactor-fabric` solves this by shifting the paradigm. It is not an LLM-chaining library; it is a **container-native orchestration engine**. It enables the automation of real-world DevOps and software engineering tasks by orchestrating agents whose tools are not just Python functions, but any command-line tool that can be packaged into a container.
 
+## **2. Core Functionality & Architecture**
+
+### **2.1. Key Concepts**
+
+*   **The Agent as a Container:** In `reactor-fabric`, an "agent" is a `reactor` instance. Its environment, capabilities, and tools are explicitly defined by a version-controlled `devcontainer.json` and `Dockerfile`. This provides perfect reproducibility, isolation, and true tooling agnosticism.
+*   **Declarative Orchestration:** A `fabric.yml` file defines the composition and workflow of your agent team. You declare which agents are available, what their roles are, and how they are triggered and communicate.
+*   **On-Demand, Stateful Spawning:** The fabric dynamically spawns agent containers as needed, managing their lifecycle with strategies like `fresh_per_call` or `reuse_per_session` to balance performance and state persistence.
+*   **Client/Server Architecture:** `reactor-fabric` runs as a persistent engine. The `reactor` CLI is the primary client for human interaction, but any application (e.g., a GitHub Action, an IDE extension) can interact with the fabric via its API to trigger complex automated workflows.
+
+### **2.2. Declarative Workflows**
+
+Orchestration will be defined in a declarative YAML file, `fabric.yml`. This file will define:
+*   **Agents:** A list of named agents, each pointing to a `devcontainer.json` source.
+*   **Workflow Graph:** The relationships and data flow between agents.
+*   **State Management:** How state is passed between containerized agents (e.g., via a shared volume, a message queue, or a Redis-based blackboard).
+
+### **2.3. Foundational Patterns**
+
+The architecture will draw from established patterns in distributed systems and multi-agent systems:
+*   **Hierarchical Task Planning:** A top-level "planner" agent can decompose a high-level goal (e.g., "deploy the web service") into a graph of tasks executed by specialized worker agents (a "build" agent, a "test" agent, a "deploy" agent).
+*   **Blackboard Architecture:** Agents will communicate and coordinate by reading from and writing to a shared, persistent state store (the "blackboard"), rather than through complex point-to-point integrations.
+
+### **2.4. Command-Line Interface**
+
+The `reactor-fabric` binary will be a standalone server process.
 ```bash
-# Start the orchestrator with a specific suite configuration
-reactor-fabric start --config /path/to/my-suite.yaml
+# Start the orchestrator with a specific fabric configuration
+reactor-fabric start --config /path/to/my-fabric.yml
 
-# Validate a suite configuration file for correctness
-reactor-fabric validate --config /path/to/my-suite.yaml
-
-# Run in the foreground for debugging
-reactor-fabric start --foreground
+# Validate a fabric configuration file for correctness
+reactor-fabric validate --config /path/to/my-fabric.yml
 ```
 
-## 5. Technical Implementation
+### **2.5. Integration with `reactor`**
 
-The implementation will follow the detailed plan laid out in `ai-prompts/6-distributed-mcp-orchestration-system.md`.
+The `reactor` CLI can act as a client to the fabric, but `reactor-fabric` is a completely separate system designed for multi-agent, automated workflows, not interactive development.
 
--   **Language**: Go
--   **Standalone Binary**: `reactor-fabric` will be a separate binary from `reactor`.
--   **Shared Code**: It will share common code (e.g., Docker interaction, configuration parsing) with `Reactor` via a shared `pkg/` directory in the monorepo.
--   **Networking**: It will manage its own Docker network to facilitate communication between agent containers if necessary.
-
-This tool represents the "multi-agent" personality of the original `claude-reactor`, now free to evolve independently as a powerful orchestration platform without being burdened by the concerns of a single developer's interactive environment.

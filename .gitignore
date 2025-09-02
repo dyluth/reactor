@@ -5,5 +5,5 @@ tmp*
 .DS_Store
 *.out
 *.html
-*.plan
+*.plan*
 *.conf
