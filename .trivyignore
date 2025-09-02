@@ -1,0 +1,10 @@
+# Trivy ignore file for false positives
+
+# Ignore test/fake credentials in Go module dependencies
+# These are not actual secrets but test data in third-party packages
+
+# gosec test data - fake GCP service account patterns
+/root/go/pkg/mod/github.com/securego/gosec/v2@*/rules/hardcoded_credentials.go
+
+# afero test data - fake GCS service account for testing
+/root/go/pkg/mod/github.com/spf13/afero@*/gcsfs/gcs-fake-service-account.json
