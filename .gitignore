@@ -6,5 +6,4 @@ tmp*
 *.out
 *.html
 *.plan
-.test-*.conf
-.reactor.conf
+*.conf
