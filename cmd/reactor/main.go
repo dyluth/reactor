@@ -569,13 +569,7 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Initialize state service for directory validation
-	stateService := core.NewStateService(resolved)
-
-	// Validate that required directories exist
-	if err := stateService.ValidateDirectories(); err != nil {
-		return fmt.Errorf("state validation failed: %w\nHint: Run 'reactor config init' to create required directories", err)
-	}
+	// Note: Directory validation removed - Docker will create mount directories as needed
 
 	// Initialize Docker service
 	ctx := context.Background()
@@ -619,11 +613,6 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 	// Update resolved config to use final image name
 	resolved.Image = finalImageName
 
-	// Generate mount specifications and create container blueprint
-	var mounts []core.MountSpec
-	if !discoveryMode {
-		mounts = stateService.GetMounts()
-	}
 	// Convert final merged port mappings to core format
 	corePortMappings := make([]core.PortMapping, len(finalPorts))
 	for i, pm := range finalPorts {
@@ -633,7 +622,8 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	blueprint := core.NewContainerBlueprint(resolved, mounts, discoveryMode, dockerHostIntegration, corePortMappings)
+	// Create container blueprint with internal mount construction
+	blueprint := core.NewContainerBlueprint(resolved, discoveryMode, dockerHostIntegration, corePortMappings)
 	containerSpec := blueprint.ToContainerSpec()
 
 	// Enhanced verbose output showing container naming and discovery

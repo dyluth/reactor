@@ -52,8 +52,10 @@ func (s *Service) ResolveConfiguration() (*ResolvedConfig, error) {
 func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedConfig, error) {
 	// Extract account from customizations or use system default
 	account := ""
+	defaultCommand := ""
 	if devConfig.Customizations != nil && devConfig.Customizations.Reactor != nil {
 		account = devConfig.Customizations.Reactor.Account
+		defaultCommand = devConfig.Customizations.Reactor.DefaultCommand
 	}
 	if account == "" {
 		systemUser, err := GetSystemUsername()
@@ -103,6 +105,7 @@ func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedC
 		RemoteUser:        remoteUser,
 		Build:             devConfig.Build,
 		PostCreateCommand: devConfig.PostCreateCommand,
+		DefaultCommand:    defaultCommand,
 		Danger:            false, // Default to safe mode for now
 	}, nil
 }

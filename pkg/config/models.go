@@ -37,6 +37,7 @@ type ResolvedConfig struct {
 	RemoteUser        string        // container user from devcontainer.json
 	Build             *Build        // Docker build configuration from devcontainer.json
 	PostCreateCommand interface{}   // post-creation command from devcontainer.json (string or []string)
+	DefaultCommand    string        // default command from reactor customizations
 	Danger            bool
 }
 

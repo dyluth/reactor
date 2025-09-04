@@ -182,3 +182,57 @@ func SetupIsolatedTest(t *testing.T) (homeDir, workspaceDir string, cleanup func
 
 	return homeDir, workspaceDir, cleanup
 }
+
+// SetupCredentialDirectories creates the reactor credential directory structure
+// for testing account-based credential mounting. Creates directories and test files
+// for all providers under the specified account and project hash.
+//
+// Usage:
+//
+//	func TestCredentialMounting(t *testing.T) {
+//	    homeDir := testutil.WithIsolatedHome(t)
+//	    credDirs := testutil.SetupCredentialDirectories(t, homeDir, "work-account", "abc123")
+//	    // credDirs contains paths to created credential files for verification
+//	}
+func SetupCredentialDirectories(t *testing.T, homeDir, account, projectHash string) map[string]string {
+	t.Helper()
+
+	// Create base reactor directory
+	reactorDir := filepath.Join(homeDir, ".reactor", account, projectHash)
+
+	credentialFiles := make(map[string]string)
+
+	// Create credential directories and test files for all builtin providers
+	providers := []struct {
+		name   string
+		subdir string
+		files  []string
+	}{
+		{"claude", "claude", []string{"credentials.txt", "config.json"}},
+		{"gemini", "gemini", []string{"api_key.txt", "settings.yaml"}},
+	}
+
+	for _, provider := range providers {
+		providerDir := filepath.Join(reactorDir, provider.subdir)
+		err := os.MkdirAll(providerDir, 0755)
+		if err != nil {
+			t.Fatalf("Failed to create provider directory %s: %v", providerDir, err)
+		}
+
+		// Create test credential files
+		for _, filename := range provider.files {
+			filePath := filepath.Join(providerDir, filename)
+			content := fmt.Sprintf("test-%s-credentials-for-%s", provider.name, account)
+
+			err := os.WriteFile(filePath, []byte(content), 0644)
+			if err != nil {
+				t.Fatalf("Failed to create credential file %s: %v", filePath, err)
+			}
+
+			// Store path for verification in tests
+			credentialFiles[fmt.Sprintf("%s_%s", provider.name, filename)] = filePath
+		}
+	}
+
+	return credentialFiles
+}

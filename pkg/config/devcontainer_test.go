@@ -377,3 +377,177 @@ func TestCompleteDataFlowTransformation(t *testing.T) {
 		})
 	}
 }
+
+func TestServiceResolveConfiguration_DefaultCommand(t *testing.T) {
+	// Test defaultCommand extraction and mapping
+	tests := []struct {
+		name             string
+		devcontainerJSON string
+		expectedCommand  string
+		description      string
+	}{
+		{
+			name: "with defaultCommand specified",
+			devcontainerJSON: `{
+				"image": "alpine:latest",
+				"customizations": {
+					"reactor": {
+						"defaultCommand": "claude"
+					}
+				}
+			}`,
+			expectedCommand: "claude",
+			description:     "should extract defaultCommand from reactor customizations",
+		},
+		{
+			name: "with complex defaultCommand",
+			devcontainerJSON: `{
+				"image": "alpine:latest",
+				"customizations": {
+					"reactor": {
+						"defaultCommand": "/bin/zsh -c 'echo hello'"
+					}
+				}
+			}`,
+			expectedCommand: "/bin/zsh -c 'echo hello'",
+			description:     "should handle complex defaultCommand strings",
+		},
+		{
+			name: "without defaultCommand",
+			devcontainerJSON: `{
+				"image": "alpine:latest",
+				"customizations": {
+					"reactor": {
+						"account": "test-account"
+					}
+				}
+			}`,
+			expectedCommand: "",
+			description:     "should have empty defaultCommand when not specified",
+		},
+		{
+			name: "without reactor customizations",
+			devcontainerJSON: `{
+				"image": "alpine:latest"
+			}`,
+			expectedCommand: "",
+			description:     "should have empty defaultCommand when no reactor customizations exist",
+		},
+		{
+			name: "with empty defaultCommand",
+			devcontainerJSON: `{
+				"image": "alpine:latest",
+				"customizations": {
+					"reactor": {
+						"defaultCommand": ""
+					}
+				}
+			}`,
+			expectedCommand: "",
+			description:     "should handle explicitly empty defaultCommand",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create isolated temporary directory for this test
+			tmpDir, err := os.MkdirTemp("", "reactor-test-*")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir)) })
+
+			// Create devcontainer.json file
+			configFile := filepath.Join(tmpDir, ".devcontainer.json")
+			require.NoError(t, os.WriteFile(configFile, []byte(tt.devcontainerJSON), 0644))
+
+			// Create service with test directory as project root
+			service := &Service{
+				projectRoot: tmpDir,
+			}
+
+			// Test resolution
+			resolved, err := service.ResolveConfiguration()
+			require.NoError(t, err, tt.description)
+
+			// Verify DefaultCommand field
+			assert.Equal(t, tt.expectedCommand, resolved.DefaultCommand, tt.description)
+
+			// Verify other fields are still working
+			assert.Equal(t, "alpine:latest", resolved.Image)
+			assert.Equal(t, tmpDir, resolved.ProjectRoot)
+			assert.NotEmpty(t, resolved.ProjectHash)
+			assert.NotEmpty(t, resolved.Account) // Should use system username
+		})
+	}
+}
+
+func TestCompleteDataFlowWithDefaultCommand(t *testing.T) {
+	// Test the complete data flow including defaultCommand
+	configContent := `{
+		"name": "full-test-with-default-command",
+		"image": "ubuntu:22.04",
+		"remoteUser": "developer",
+		"forwardPorts": [8080, "3000:3001"],
+		"postCreateCommand": "npm install",
+		"build": {
+			"dockerfile": "Dockerfile",
+			"context": "."
+		},
+		"customizations": {
+			"reactor": {
+				"account": "test-account",
+				"defaultCommand": "claude --version"
+			}
+		}
+	}`
+
+	// Create isolated temporary directory
+	tmpDir, err := os.MkdirTemp("", "reactor-test-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir)) })
+
+	// Create config file
+	configFile := filepath.Join(tmpDir, ".devcontainer.json")
+	require.NoError(t, os.WriteFile(configFile, []byte(configContent), 0644))
+
+	// Test complete flow: devcontainer.json → DevContainerConfig → ResolvedConfig
+
+	// 1. Find file
+	foundPath, found, err := FindDevContainerFile(tmpDir)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, configFile, foundPath)
+
+	// 2. Load DevContainerConfig
+	devConfig, err := LoadDevContainerConfig(foundPath)
+	require.NoError(t, err)
+	assert.Equal(t, "full-test-with-default-command", devConfig.Name)
+	assert.Equal(t, "ubuntu:22.04", devConfig.Image)
+	assert.Equal(t, "developer", devConfig.RemoteUser)
+	assert.Equal(t, "npm install", devConfig.PostCreateCommand)
+	assert.NotNil(t, devConfig.Build)
+	assert.Equal(t, "Dockerfile", devConfig.Build.Dockerfile)
+	assert.Equal(t, ".", devConfig.Build.Context)
+	assert.NotNil(t, devConfig.Customizations)
+	assert.NotNil(t, devConfig.Customizations.Reactor)
+	assert.Equal(t, "test-account", devConfig.Customizations.Reactor.Account)
+	assert.Equal(t, "claude --version", devConfig.Customizations.Reactor.DefaultCommand)
+
+	// 3. Transform to ResolvedConfig via service
+	service := &Service{
+		projectRoot: tmpDir,
+	}
+
+	resolved, err := service.ResolveConfiguration()
+	require.NoError(t, err)
+
+	// Verify the transformation includes DefaultCommand
+	assert.Equal(t, "ubuntu:22.04", resolved.Image)
+	assert.Equal(t, "test-account", resolved.Account)
+	assert.Equal(t, "claude --version", resolved.DefaultCommand) // NEW: verify DefaultCommand mapping
+	assert.Equal(t, tmpDir, resolved.ProjectRoot)
+	assert.NotEmpty(t, resolved.ProjectHash)
+	assert.Contains(t, resolved.AccountConfigDir, "test-account")
+	assert.Contains(t, resolved.ProjectConfigDir, resolved.ProjectHash)
+	assert.Equal(t, BuiltinProviders["claude"], resolved.Provider)
+	assert.False(t, resolved.Danger) // Default to safe mode
+}
