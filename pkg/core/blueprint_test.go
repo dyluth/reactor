@@ -413,3 +413,97 @@ func TestContainerBlueprintValidation_EdgeCases(t *testing.T) {
 	assert.NotNil(t, spec)
 	assert.Equal(t, blueprint.Name, spec.Name)
 }
+
+func TestNewContainerBlueprint_RemoteUser(t *testing.T) {
+	testutil.WithIsolatedHome(t)
+
+	tests := []struct {
+		name         string
+		remoteUser   string
+		expectedUser string
+	}{
+		{
+			name:         "with remoteUser specified",
+			remoteUser:   "myuser",
+			expectedUser: "myuser",
+		},
+		{
+			name:         "with root user",
+			remoteUser:   "root",
+			expectedUser: "root",
+		},
+		{
+			name:         "empty remoteUser falls back to claude",
+			remoteUser:   "",
+			expectedUser: "claude",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create test configuration with specific remoteUser
+			resolved := &config.ResolvedConfig{
+				Provider: config.ProviderInfo{
+					Name:         "claude",
+					DefaultImage: "test-image",
+					Mounts:       []config.MountPoint{},
+				},
+				Account:          "testuser",
+				Image:            "test-image",
+				ProjectRoot:      "/test/project",
+				ProjectHash:      "testhash123",
+				AccountConfigDir: "/test/account",
+				ProjectConfigDir: "/test/project/config",
+				ForwardPorts:     []config.PortMapping{},
+				RemoteUser:       tt.remoteUser,
+				Danger:           false,
+			}
+
+			// Create blueprint
+			blueprint := NewContainerBlueprint(resolved, []MountSpec{}, false, false, []PortMapping{})
+
+			// Verify user is set correctly
+			assert.Equal(t, tt.expectedUser, blueprint.User)
+		})
+	}
+}
+
+func TestNewContainerBlueprint_ForwardPortsIntegration(t *testing.T) {
+	testutil.WithIsolatedHome(t)
+
+	// Test that the function accepts port mappings correctly
+	resolved := &config.ResolvedConfig{
+		Provider: config.ProviderInfo{
+			Name:         "claude",
+			DefaultImage: "test-image",
+			Mounts:       []config.MountPoint{},
+		},
+		Account:          "testuser",
+		Image:            "test-image",
+		ProjectRoot:      "/test/project",
+		ProjectHash:      "testhash123",
+		AccountConfigDir: "/test/account",
+		ProjectConfigDir: "/test/project/config",
+		ForwardPorts:     []config.PortMapping{}, // Not used directly in blueprint construction
+		RemoteUser:       "testuser",
+		Danger:           false,
+	}
+
+	portMappings := []PortMapping{
+		{HostPort: 8080, ContainerPort: 8080},
+		{HostPort: 3000, ContainerPort: 4000},
+	}
+
+	blueprint := NewContainerBlueprint(resolved, []MountSpec{}, false, false, portMappings)
+
+	// Verify port mappings are preserved
+	require.Len(t, blueprint.PortMappings, 2)
+	assert.Equal(t, 8080, blueprint.PortMappings[0].HostPort)
+	assert.Equal(t, 8080, blueprint.PortMappings[0].ContainerPort)
+	assert.Equal(t, 3000, blueprint.PortMappings[1].HostPort)
+	assert.Equal(t, 4000, blueprint.PortMappings[1].ContainerPort)
+
+	// Verify other fields
+	assert.Equal(t, "testuser", blueprint.User)
+	assert.Equal(t, "test-image", blueprint.Image)
+}

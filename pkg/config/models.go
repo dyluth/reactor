@@ -5,10 +5,16 @@ import (
 	"os/user"
 )
 
-// MountPoint defines a directory mount for providers  
+// MountPoint defines a directory mount for providers
 type MountPoint struct {
 	Source string // subdirectory under ~/.reactor/<account>/<project-hash>/
 	Target string // path in container
+}
+
+// PortMapping defines a port forwarding configuration
+type PortMapping struct {
+	HostPort      int // port on host machine
+	ContainerPort int // port inside container
 }
 
 // ProviderInfo defines built-in provider configuration
@@ -20,14 +26,18 @@ type ProviderInfo struct {
 
 // ResolvedConfig contains fully resolved configuration with all paths
 type ResolvedConfig struct {
-	Provider         ProviderInfo
-	Account          string
-	Image            string
-	ProjectRoot      string
-	ProjectHash      string // first 8 chars of project path hash
-	AccountConfigDir string // ~/.reactor/<account>/
-	ProjectConfigDir string // ~/.reactor/<account>/<project-hash>/
-	Danger           bool
+	Provider          ProviderInfo
+	Account           string
+	Image             string
+	ProjectRoot       string
+	ProjectHash       string        // first 8 chars of project path hash
+	AccountConfigDir  string        // ~/.reactor/<account>/
+	ProjectConfigDir  string        // ~/.reactor/<account>/<project-hash>/
+	ForwardPorts      []PortMapping // port forwarding from devcontainer.json
+	RemoteUser        string        // container user from devcontainer.json
+	Build             *Build        // Docker build configuration from devcontainer.json
+	PostCreateCommand interface{}   // post-creation command from devcontainer.json (string or []string)
+	Danger            bool
 }
 
 // Built-in provider mappings (hardcoded but extensible)
@@ -61,13 +71,13 @@ var BuiltinImages = map[string]string{
 
 // DevContainerConfig represents the structure of a devcontainer.json file
 type DevContainerConfig struct {
-	Name              string                   `json:"name"`
-	Image             string                   `json:"image"`
-	Build             *Build                   `json:"build"`
-	ForwardPorts      []interface{}            `json:"forwardPorts"` // Can be int or string "host:container"
-	RemoteUser        string                   `json:"remoteUser"`
-	PostCreateCommand string                   `json:"postCreateCommand"`
-	Customizations    *Customizations          `json:"customizations"`
+	Name              string          `json:"name"`
+	Image             string          `json:"image"`
+	Build             *Build          `json:"build"`
+	ForwardPorts      []interface{}   `json:"forwardPorts"` // Can be int or string "host:container"
+	RemoteUser        string          `json:"remoteUser"`
+	PostCreateCommand interface{}     `json:"postCreateCommand"`
+	Customizations    *Customizations `json:"customizations"`
 }
 
 // Build defines Docker build properties

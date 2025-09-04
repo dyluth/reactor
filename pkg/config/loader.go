@@ -9,7 +9,6 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-
 // CheckDependencies verifies that required system dependencies are available
 func CheckDependencies() error {
 	// Check for Docker

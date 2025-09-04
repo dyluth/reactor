@@ -60,12 +60,18 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, 
 		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 	}
 
+	// Determine container user: use RemoteUser from devcontainer.json or default to "claude"
+	user := resolved.RemoteUser
+	if user == "" {
+		user = "claude" // Default fallback for backward compatibility
+	}
+
 	return &ContainerBlueprint{
 		Name:         containerName,
 		Image:        resolved.Image,
 		Command:      []string{"/bin/bash"}, // Default interactive shell
 		WorkDir:      "/workspace",          // Default to mounted project directory
-		User:         "claude",              // Default container user
+		User:         user,                  // Use remoteUser from devcontainer.json with fallback
 		Environment:  environment,
 		Mounts:       dockerMounts,
 		PortMappings: portMappings,

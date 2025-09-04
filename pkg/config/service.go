@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Service handles configuration operations
@@ -31,8 +33,8 @@ func (s *Service) ResolveConfiguration() (*ResolvedConfig, error) {
 		return nil, fmt.Errorf("error searching for devcontainer.json: %w", err)
 	}
 	if !found {
-		return nil, fmt.Errorf("no devcontainer.json found in %s or %s. Run 'reactor init' to create one", 
-			filepath.Join(s.projectRoot, ".devcontainer", "devcontainer.json"), 
+		return nil, fmt.Errorf("no devcontainer.json found in %s or %s. Run 'reactor init' to create one",
+			filepath.Join(s.projectRoot, ".devcontainer", "devcontainer.json"),
 			filepath.Join(s.projectRoot, ".devcontainer.json"))
 	}
 
@@ -70,6 +72,15 @@ func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedC
 		image = providerInfo.DefaultImage
 	}
 
+	// Parse and validate forwardPorts from devcontainer.json
+	forwardPorts, err := parseForwardPorts(devConfig.ForwardPorts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse forwardPorts from devcontainer.json: %w", err)
+	}
+
+	// Extract remoteUser from devcontainer.json (will be defaulted in core layer if empty)
+	remoteUser := devConfig.RemoteUser
+
 	// Generate project hash and paths
 	projectHash := GenerateProjectHash(s.projectRoot)
 	reactorHome, err := GetReactorHomeDir()
@@ -81,17 +92,20 @@ func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedC
 	projectConfigDir := filepath.Join(accountConfigDir, projectHash)
 
 	return &ResolvedConfig{
-		Provider:         providerInfo,
-		Account:          account,
-		Image:            image,
-		ProjectRoot:      s.projectRoot,
-		ProjectHash:      projectHash,
-		AccountConfigDir: accountConfigDir,
-		ProjectConfigDir: projectConfigDir,
-		Danger:           false, // Default to safe mode for now
+		Provider:          providerInfo,
+		Account:           account,
+		Image:             image,
+		ProjectRoot:       s.projectRoot,
+		ProjectHash:       projectHash,
+		AccountConfigDir:  accountConfigDir,
+		ProjectConfigDir:  projectConfigDir,
+		ForwardPorts:      forwardPorts,
+		RemoteUser:        remoteUser,
+		Build:             devConfig.Build,
+		PostCreateCommand: devConfig.PostCreateCommand,
+		Danger:            false, // Default to safe mode for now
 	}, nil
 }
-
 
 // InitializeProject creates a basic devcontainer.json template
 func (s *Service) InitializeProject() error {
@@ -225,4 +239,62 @@ func (s *Service) ListAccounts() error {
 	}
 
 	return nil
+}
+
+// parseForwardPorts parses the forwardPorts array from devcontainer.json
+// Handles both int (8080 -> 8080:8080) and string ("8080:3000") formats
+func parseForwardPorts(forwardPorts []interface{}) ([]PortMapping, error) {
+	var result []PortMapping
+
+	for i, port := range forwardPorts {
+		var hostPort, containerPort int
+		var err error
+
+		switch v := port.(type) {
+		case float64:
+			// JSON numbers are unmarshalled as float64 in Go
+			hostPort = int(v)
+			containerPort = int(v)
+
+			// Validate port range
+			if hostPort < 1 || hostPort > 65535 {
+				return nil, fmt.Errorf("forwardPorts[%d]: port %d is out of valid range (1-65535)", i, hostPort)
+			}
+
+		case string:
+			// Parse "host:container" format
+			parts := strings.Split(v, ":")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("forwardPorts[%d]: invalid string format '%s', expected 'host:container'", i, v)
+			}
+
+			hostPort, err = strconv.Atoi(parts[0])
+			if err != nil {
+				return nil, fmt.Errorf("forwardPorts[%d]: invalid host port '%s', must be a number", i, parts[0])
+			}
+
+			containerPort, err = strconv.Atoi(parts[1])
+			if err != nil {
+				return nil, fmt.Errorf("forwardPorts[%d]: invalid container port '%s', must be a number", i, parts[1])
+			}
+
+			// Validate port ranges
+			if hostPort < 1 || hostPort > 65535 {
+				return nil, fmt.Errorf("forwardPorts[%d]: host port %d is out of valid range (1-65535)", i, hostPort)
+			}
+			if containerPort < 1 || containerPort > 65535 {
+				return nil, fmt.Errorf("forwardPorts[%d]: container port %d is out of valid range (1-65535)", i, containerPort)
+			}
+
+		default:
+			return nil, fmt.Errorf("forwardPorts[%d]: invalid type %T, expected number or string", i, v)
+		}
+
+		result = append(result, PortMapping{
+			HostPort:      hostPort,
+			ContainerPort: containerPort,
+		})
+	}
+
+	return result, nil
 }

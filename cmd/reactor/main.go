@@ -93,6 +93,44 @@ func checkPortConflicts(mappings []PortMapping) []int {
 	return conflictPorts
 }
 
+// mergePortMappings merges devcontainer.json ports with CLI ports
+// CLI ports take precedence on host port conflicts
+func mergePortMappings(devcontainerPorts []config.PortMapping, cliPorts []PortMapping) []PortMapping {
+	// Start with devcontainer.json ports as the base
+	result := make([]PortMapping, 0, len(devcontainerPorts)+len(cliPorts))
+
+	// Convert devcontainer ports to CLI PortMapping type
+	for _, port := range devcontainerPorts {
+		result = append(result, PortMapping{
+			HostPort:      port.HostPort,
+			ContainerPort: port.ContainerPort,
+		})
+	}
+
+	// Add CLI ports, overriding any devcontainer ports with same host port
+	for _, cliPort := range cliPorts {
+		conflictIndex := -1
+
+		// Check if CLI port conflicts with existing port by host port
+		for i, existingPort := range result {
+			if existingPort.HostPort == cliPort.HostPort {
+				conflictIndex = i
+				break
+			}
+		}
+
+		if conflictIndex >= 0 {
+			// Override the existing port mapping
+			result[conflictIndex] = cliPort
+		} else {
+			// Add the new port mapping
+			result = append(result, cliPort)
+		}
+	}
+
+	return result
+}
+
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -213,9 +251,7 @@ Examples:
   reactor build --no-cache                # Build without using cache
 
 For more details, see the full documentation.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("build command not yet implemented - this will be added in Milestone 2")
-		},
+		RunE: buildCmdHandler,
 	}
 }
 
@@ -476,15 +512,31 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Parse and validate port mappings
-	parsedPorts, err := parsePortMappings(portMappings)
+	// Parse and validate CLI port mappings
+	cliPorts, err := parsePortMappings(portMappings)
 	if err != nil {
-		return fmt.Errorf("port mapping error: %w", err)
+		return fmt.Errorf("CLI port mapping error: %w", err)
 	}
 
-	// Check for port conflicts
-	if len(parsedPorts) > 0 {
-		conflictPorts := checkPortConflicts(parsedPorts)
+	// Load and validate configuration using new devcontainer.json workflow
+	configService := config.NewService()
+	resolved, err := configService.ResolveConfiguration()
+	if err != nil {
+		return err
+	}
+
+	// Apply account override if provided
+	if accountOverride != "" {
+		resolved.Account = accountOverride
+		// TODO: In future milestones, we might need to recalculate paths when account changes
+	}
+
+	// Merge devcontainer.json ports with CLI ports (CLI takes precedence on conflicts)
+	finalPorts := mergePortMappings(resolved.ForwardPorts, cliPorts)
+
+	// Check for port conflicts on final merged list
+	if len(finalPorts) > 0 {
+		conflictPorts := checkPortConflicts(finalPorts)
 		if len(conflictPorts) > 0 {
 			fmt.Printf("⚠️  WARNING: The following host ports may already be in use:\n")
 			for _, port := range conflictPorts {
@@ -500,19 +552,6 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("   This gives the container full access to your host Docker daemon.\n")
 		fmt.Printf("   Only use this flag with trusted images and AI agents.\n")
 		fmt.Printf("   The container can create, modify, and delete other containers.\n\n")
-	}
-
-	// Load and validate configuration using new devcontainer.json workflow
-	configService := config.NewService()
-	resolved, err := configService.ResolveConfiguration()
-	if err != nil {
-		return err
-	}
-
-	// Apply account override if provided
-	if accountOverride != "" {
-		resolved.Account = accountOverride
-		// TODO: In future milestones, we might need to recalculate paths when account changes
 	}
 
 	// Display resolved configuration for debugging
@@ -555,14 +594,39 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("docker daemon not available: %w", err)
 	}
 
+	// Handle image building if build configuration is present
+	finalImageName := resolved.Image // Default to resolved image
+	if resolved.Build != nil {
+		// Build takes precedence over image
+		buildSpec, err := createBuildSpecFromConfig(resolved)
+		if err != nil {
+			return fmt.Errorf("failed to create build specification: %w", err)
+		}
+
+		// Check if we should force rebuild
+		forceRebuild := rebuild
+		if err := dockerService.BuildImage(ctx, buildSpec, forceRebuild); err != nil {
+			return fmt.Errorf("build failed: %w", err)
+		}
+
+		// Use the built image for container creation
+		finalImageName = buildSpec.ImageName
+		if verbose {
+			fmt.Printf("[INFO] Using built image: %s\n", finalImageName)
+		}
+	}
+
+	// Update resolved config to use final image name
+	resolved.Image = finalImageName
+
 	// Generate mount specifications and create container blueprint
 	var mounts []core.MountSpec
 	if !discoveryMode {
 		mounts = stateService.GetMounts()
 	}
-	// Convert port mappings to core format
-	corePortMappings := make([]core.PortMapping, len(parsedPorts))
-	for i, pm := range parsedPorts {
+	// Convert final merged port mappings to core format
+	corePortMappings := make([]core.PortMapping, len(finalPorts))
+	for i, pm := range finalPorts {
 		corePortMappings[i] = core.PortMapping{
 			HostPort:      pm.HostPort,
 			ContainerPort: pm.ContainerPort,
@@ -582,9 +646,9 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		if dockerHostIntegration {
 			fmt.Printf("[INFO] Docker host integration: Docker socket will be mounted\n")
 		}
-		if len(parsedPorts) > 0 {
+		if len(finalPorts) > 0 {
 			fmt.Printf("[INFO] Port forwarding: ")
-			for i, pm := range parsedPorts {
+			for i, pm := range finalPorts {
 				if i > 0 {
 					fmt.Printf(", ")
 				}
@@ -629,6 +693,25 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 	if verbose {
 		fmt.Printf("Container ID: %s\n", containerInfo.ID)
 		fmt.Printf("Status: %s\n", containerInfo.Status)
+	}
+
+	// Execute postCreateCommand if specified
+	if resolved.PostCreateCommand != nil {
+		if verbose {
+			fmt.Printf("[INFO] Executing postCreateCommand...\n")
+		} else {
+			fmt.Printf("Running postCreateCommand...\n")
+		}
+
+		if err := dockerService.ExecutePostCreateCommand(ctx, containerInfo.ID, resolved.PostCreateCommand); err != nil {
+			return fmt.Errorf("postCreateCommand execution failed: %w", err)
+		}
+
+		if verbose {
+			fmt.Printf("[INFO] postCreateCommand completed successfully\n")
+		} else {
+			fmt.Printf("postCreateCommand completed.\n")
+		}
 	}
 
 	// Attach to interactive session
@@ -719,6 +802,106 @@ func diffCmdHandler(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func buildCmdHandler(cmd *cobra.Command, args []string) error {
+	// Check dependencies first
+	if err := config.CheckDependencies(); err != nil {
+		return err
+	}
+
+	// Load and validate configuration
+	configService := config.NewService()
+	resolved, err := configService.ResolveConfiguration()
+	if err != nil {
+		return err
+	}
+
+	// Check if build configuration is present
+	if resolved.Build == nil {
+		return fmt.Errorf("no build configuration found in devcontainer.json. Add a 'build' property to enable building")
+	}
+
+	// Initialize Docker service
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	// Create BuildSpec from resolved configuration
+	buildSpec, err := createBuildSpecFromConfig(resolved)
+	if err != nil {
+		return fmt.Errorf("failed to create build specification: %w", err)
+	}
+
+	// Force rebuild for explicit build command
+	if err := dockerService.BuildImage(ctx, buildSpec, true); err != nil {
+		return fmt.Errorf("build failed: %w", err)
+	}
+
+	fmt.Printf("Build completed successfully.\n")
+	return nil
+}
+
+// createBuildSpecFromConfig creates a BuildSpec from ResolvedConfig
+func createBuildSpecFromConfig(resolved *config.ResolvedConfig) (docker.BuildSpec, error) {
+	if resolved.Build == nil {
+		return docker.BuildSpec{}, fmt.Errorf("build configuration is nil")
+	}
+
+	// Find the devcontainer.json file to determine context base directory
+	configPath, found, err := config.FindDevContainerFile(resolved.ProjectRoot)
+	if err != nil {
+		return docker.BuildSpec{}, fmt.Errorf("failed to find devcontainer.json: %w", err)
+	}
+	if !found {
+		return docker.BuildSpec{}, fmt.Errorf("devcontainer.json not found")
+	}
+
+	// Get directory containing devcontainer.json
+	configDir := filepath.Dir(configPath)
+
+	// Resolve build context relative to devcontainer.json directory
+	var contextPath string
+	if resolved.Build.Context != "" {
+		if filepath.IsAbs(resolved.Build.Context) {
+			contextPath = resolved.Build.Context
+		} else {
+			contextPath = filepath.Join(configDir, resolved.Build.Context)
+		}
+	} else {
+		// Default context to same directory as devcontainer.json
+		contextPath = configDir
+	}
+
+	// Clean the path
+	contextPath = filepath.Clean(contextPath)
+
+	// Dockerfile defaults to "Dockerfile" if not specified
+	dockerfile := resolved.Build.Dockerfile
+	if dockerfile == "" {
+		dockerfile = "Dockerfile"
+	}
+
+	// Create image name using project hash
+	imageName := fmt.Sprintf("reactor-build:%s", resolved.ProjectHash)
+
+	return docker.BuildSpec{
+		Dockerfile: dockerfile,
+		Context:    contextPath,
+		ImageName:  imageName,
+	}, nil
+}
+
 func accountsListHandler(cmd *cobra.Command, args []string) error {
 	configService := config.NewService()
 	return configService.ListAccounts()
@@ -787,7 +970,7 @@ func configGetHandler(cmd *cobra.Command, args []string) error {
 		if !found {
 			return fmt.Errorf("no devcontainer.json found")
 		}
-		
+
 		fmt.Printf("For configuration key '%s', check your devcontainer.json file:\n", key)
 		fmt.Printf("  %s\n", configPath)
 		fmt.Printf("See https://containers.dev/implementors/json_reference/ for available options.\n")
@@ -799,7 +982,7 @@ func configGetHandler(cmd *cobra.Command, args []string) error {
 func configSetHandler(cmd *cobra.Command, args []string) error {
 	key := args[0]
 	value := args[1]
-	
+
 	// Find the devcontainer.json file to show where to edit
 	configPath, found, err := config.FindDevContainerFile(".")
 	if err != nil {

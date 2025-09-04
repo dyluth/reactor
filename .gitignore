@@ -1,3 +1,4 @@
+
 .tmp
 .env
 build*
@@ -7,3 +8,7 @@ tmp*
 *.html
 *.plan*
 *.conf
+reactor
+
+!docs/features/reactor
+!cmd/reactor

@@ -1,8 +1,12 @@
 package docker
 
 import (
+	"archive/tar"
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
@@ -221,6 +226,13 @@ func (s *Service) RemoveContainer(ctx context.Context, containerID string) error
 	return nil
 }
 
+// BuildSpec defines the specification for building a Docker image
+type BuildSpec struct {
+	Dockerfile string // Path to Dockerfile relative to context
+	Context    string // Path to build context directory
+	ImageName  string // Name to tag the built image with
+}
+
 // ContainerSpec defines the specification for creating a container
 // PortMapping represents a port forwarding configuration
 type PortMapping struct {
@@ -404,4 +416,284 @@ func (s *Service) ContainerDiff(ctx context.Context, containerID string) ([]File
 	}
 
 	return fileChanges, nil
+}
+
+// ImageExists checks if an image with the given name/tag exists locally
+func (s *Service) ImageExists(ctx context.Context, imageName string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	images, err := s.client.ImageList(ctx, types.ImageListOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to list images: %w", err)
+	}
+
+	for _, image := range images {
+		for _, tag := range image.RepoTags {
+			if tag == imageName {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// BuildImage builds a Docker image from the given BuildSpec
+// It checks if the image already exists and skips building if found, unless forceRebuild is true
+func (s *Service) BuildImage(ctx context.Context, spec BuildSpec, forceRebuild bool) error {
+	// Check if image already exists (unless forcing rebuild)
+	if !forceRebuild {
+		exists, err := s.ImageExists(ctx, spec.ImageName)
+		if err != nil {
+			return fmt.Errorf("failed to check if image exists: %w", err)
+		}
+		if exists {
+			fmt.Printf("Image %s already exists, skipping build\n", spec.ImageName)
+			return nil
+		}
+	}
+
+	// Validate context directory exists
+	if _, err := os.Stat(spec.Context); os.IsNotExist(err) {
+		return fmt.Errorf("build context directory does not exist: %s", spec.Context)
+	}
+
+	// Validate Dockerfile exists
+	dockerfilePath := filepath.Join(spec.Context, spec.Dockerfile)
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+		return fmt.Errorf("dockerfile does not exist: %s", dockerfilePath)
+	}
+
+	fmt.Printf("Building Docker image: %s\n", spec.ImageName)
+	fmt.Printf("Context: %s\n", spec.Context)
+	fmt.Printf("Dockerfile: %s\n", spec.Dockerfile)
+
+	// Create build context tar archive
+	buildContext, err := s.createBuildContext(spec.Context)
+	if err != nil {
+		return fmt.Errorf("failed to create build context: %w", err)
+	}
+	defer func() { _ = buildContext.Close() }()
+
+	// Build the image
+	buildOptions := types.ImageBuildOptions{
+		Context:    buildContext,
+		Dockerfile: spec.Dockerfile,
+		Tags:       []string{spec.ImageName},
+		Remove:     true, // Remove intermediate containers
+	}
+
+	response, err := s.client.ImageBuild(ctx, buildContext, buildOptions)
+	if err != nil {
+		return fmt.Errorf("failed to build image: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	// Stream build output to console with real-time feedback
+	if err := s.streamBuildOutput(response.Body); err != nil {
+		return fmt.Errorf("build failed: %w", err)
+	}
+
+	fmt.Printf("Successfully built image: %s\n", spec.ImageName)
+	return nil
+}
+
+// createBuildContext creates a tar archive of the build context directory
+func (s *Service) createBuildContext(contextPath string) (io.ReadCloser, error) {
+	pr, pw := io.Pipe()
+
+	go func() {
+		defer func() { _ = pw.Close() }()
+		tw := tar.NewWriter(pw)
+		defer func() { _ = tw.Close() }()
+
+		err := filepath.Walk(contextPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// Get relative path from context directory
+			relPath, err := filepath.Rel(contextPath, path)
+			if err != nil {
+				return err
+			}
+
+			// Skip if this is the context directory itself
+			if relPath == "." {
+				return nil
+			}
+
+			// Create tar header
+			header, err := tar.FileInfoHeader(info, "")
+			if err != nil {
+				return err
+			}
+
+			// Use forward slashes for tar paths (required by Docker)
+			header.Name = filepath.ToSlash(relPath)
+
+			// Write header
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+
+			// If it's a regular file, write its content
+			if info.Mode().IsRegular() {
+				file, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = file.Close() }()
+
+				if _, err := io.Copy(tw, file); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			pw.CloseWithError(err)
+		}
+	}()
+
+	return pr, nil
+}
+
+// streamBuildOutput processes Docker build output and streams it to console
+func (s *Service) streamBuildOutput(reader io.Reader) error {
+	scanner := bufio.NewScanner(reader)
+
+	for scanner.Scan() {
+		var buildOutput struct {
+			Stream string `json:"stream,omitempty"`
+			Error  string `json:"error,omitempty"`
+		}
+
+		line := scanner.Text()
+		if err := json.Unmarshal([]byte(line), &buildOutput); err != nil {
+			// If we can't parse as JSON, just print the raw line
+			fmt.Print(line + "\n")
+			continue
+		}
+
+		// Handle build errors
+		if buildOutput.Error != "" {
+			return fmt.Errorf("build error: %s", buildOutput.Error)
+		}
+
+		// Stream build output preserving ANSI colors
+		if buildOutput.Stream != "" {
+			fmt.Print(buildOutput.Stream)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading build output: %w", err)
+	}
+
+	return nil
+}
+
+// ExecutePostCreateCommand runs the postCreateCommand in the specified container
+// postCreateCommand can be either a string or []string (array of strings)
+func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID string, postCreateCommand interface{}) error {
+	if postCreateCommand == nil {
+		// No postCreateCommand specified, nothing to do
+		return nil
+	}
+
+	// Parse postCreateCommand into command array
+	var cmdArray []string
+	switch cmd := postCreateCommand.(type) {
+	case string:
+		if strings.TrimSpace(cmd) == "" {
+			// Empty command, nothing to do
+			return nil
+		}
+		// For string commands, we'll execute them through the shell to handle complex commands
+		cmdArray = []string{"/bin/sh", "-c", cmd}
+	case []interface{}:
+		if len(cmd) == 0 {
+			// Empty array, nothing to do
+			return nil
+		}
+		// Convert []interface{} to []string
+		for _, v := range cmd {
+			if str, ok := v.(string); ok {
+				cmdArray = append(cmdArray, str)
+			} else {
+				return fmt.Errorf("postCreateCommand array contains non-string element: %v", v)
+			}
+		}
+	case []string:
+		if len(cmd) == 0 {
+			// Empty array, nothing to do
+			return nil
+		}
+		cmdArray = cmd
+	default:
+		return fmt.Errorf("postCreateCommand must be a string or array of strings, got %T", postCreateCommand)
+	}
+
+	// Check if container is running
+	containerInfo, err := s.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container %s: %w", containerID, err)
+	}
+
+	if !containerInfo.State.Running {
+		return fmt.Errorf("container %s is not running, cannot execute postCreateCommand", containerID)
+	}
+
+	fmt.Printf("Executing postCreateCommand: %v\n", cmdArray)
+
+	// Create exec instance for postCreateCommand
+	execConfig := types.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		Cmd:          cmdArray,
+	}
+
+	execResp, err := s.client.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create exec instance for postCreateCommand: %w", err)
+	}
+
+	// Start the exec instance
+	if err := s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{}); err != nil {
+		return fmt.Errorf("failed to start postCreateCommand execution: %w", err)
+	}
+
+	// Attach to get output
+	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{})
+	if err != nil {
+		return fmt.Errorf("failed to attach to postCreateCommand execution: %w", err)
+	}
+	defer attachResp.Close()
+
+	// Stream the output
+	scanner := bufio.NewScanner(attachResp.Reader)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading postCreateCommand output: %w", err)
+	}
+
+	// Wait for the exec to complete and check exit code
+	inspectResp, err := s.client.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect postCreateCommand execution: %w", err)
+	}
+
+	if inspectResp.ExitCode != 0 {
+		return fmt.Errorf("postCreateCommand failed with exit code %d", inspectResp.ExitCode)
+	}
+
+	fmt.Println("postCreateCommand completed successfully")
+	return nil
 }
