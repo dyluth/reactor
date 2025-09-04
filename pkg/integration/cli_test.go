@@ -1,15 +1,23 @@
 package integration
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/dyluth/reactor/pkg/testutil"
+)
+
+var (
+	sharedReactorBinary     string
+	sharedReactorBinaryOnce sync.Once
+	sharedReactorBinaryErr  error
 )
 
 // TestReactorCLIBasicCommands tests basic CLI functionality
@@ -18,9 +26,8 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
-	// Build reactor binary for testing
+	// Get shared reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
-	defer func() { _ = os.Remove(reactorBinary) }()
 
 	tests := []struct {
 		name             string
@@ -92,7 +99,6 @@ func TestReactorConfigOperations(t *testing.T) {
 	defer cleanup()
 
 	reactorBinary := buildReactorBinary(t)
-	defer func() { _ = os.Remove(reactorBinary) }()
 
 	// Change to test directory
 	originalWD, _ := os.Getwd()
@@ -131,11 +137,11 @@ func TestReactorConfigOperations(t *testing.T) {
 		}
 
 		expectedStrings := []string{
-			"Created directory:",
-			"Initialized project configuration",
+			"Initialized devcontainer.json at:",
 			"Default configuration:",
-			"provider: claude",
-			"account:  " + currentUser,
+			"name:",
+			"image:",
+			"account: " + currentUser,
 		}
 
 		for _, expected := range expectedStrings {
@@ -144,10 +150,10 @@ func TestReactorConfigOperations(t *testing.T) {
 			}
 		}
 
-		// Verify config file was created
-		configFile := filepath.Join(tempDir, "."+isolationPrefix+".conf")
-		if _, err := os.Stat(configFile); os.IsNotExist(err) {
-			t.Errorf("Config file was not created at %s", configFile)
+		// Verify devcontainer.json was created
+		devcontainerFile := filepath.Join(tempDir, ".devcontainer", "devcontainer.json")
+		if _, err := os.Stat(devcontainerFile); os.IsNotExist(err) {
+			t.Errorf("devcontainer.json was not created at %s", devcontainerFile)
 		}
 	})
 
@@ -163,11 +169,11 @@ func TestReactorConfigOperations(t *testing.T) {
 
 		outputStr := string(output)
 		expectedStrings := []string{
-			"Project Configuration",
-			"Resolved Configuration:",
+			"DevContainer Configuration",
+			"account:",
+			"image:",
 			"project root:",
-			"Available Providers:",
-			"claude",
+			"project hash:",
 		}
 
 		for _, expected := range expectedStrings {
@@ -190,7 +196,7 @@ func TestReactorConfigOperations(t *testing.T) {
 		outputStr := string(output)
 		// Should contain all the same info as regular show
 		expectedStrings := []string{
-			"Project Configuration",
+			"DevContainer Configuration",
 			"project root:",
 		}
 
@@ -202,21 +208,22 @@ func TestReactorConfigOperations(t *testing.T) {
 	})
 
 	t.Run("config get and set", func(t *testing.T) {
-		// Test setting a value
+		// Test setting a value (now directs to devcontainer.json)
 		cmd := exec.Command(reactorBinary, "config", "set", "provider", "gemini")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
 
 		output, err := cmd.CombinedOutput()
+		// config set now directs users to edit devcontainer.json manually
 		if err != nil {
 			t.Fatalf("config set failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "Set provider = gemini") {
-			t.Errorf("Expected set confirmation but got: %s", string(output))
+		if !strings.Contains(string(output), "To set 'provider', edit your devcontainer.json file") {
+			t.Errorf("Expected devcontainer.json edit instruction but got: %s", string(output))
 		}
 
-		// Test getting the value
+		// Test getting the value (now directs to devcontainer.json)
 		cmd = exec.Command(reactorBinary, "config", "get", "provider")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
@@ -226,8 +233,8 @@ func TestReactorConfigOperations(t *testing.T) {
 			t.Fatalf("config get failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "gemini") {
-			t.Errorf("Expected to get 'gemini' but got: %s", string(output))
+		if !strings.Contains(string(output), "For configuration key 'provider', check your devcontainer.json file") {
+			t.Errorf("Expected devcontainer.json check instruction but got: %s", string(output))
 		}
 	})
 }
@@ -238,7 +245,6 @@ func TestContainerNaming(t *testing.T) {
 	defer cleanup()
 
 	reactorBinary := buildReactorBinary(t)
-	defer func() { _ = os.Remove(reactorBinary) }()
 
 	// Create test directories with different names to test sanitization
 	testCases := []struct {
@@ -309,27 +315,46 @@ func TestContainerNaming(t *testing.T) {
 
 // Helper functions
 
-func buildReactorBinary(t *testing.T) string {
+// getSharedReactorBinary builds the reactor binary once and returns the path to all callers
+func getSharedReactorBinary(t *testing.T) string {
 	t.Helper()
 
+	sharedReactorBinaryOnce.Do(func() {
+		sharedReactorBinary, sharedReactorBinaryErr = buildReactorBinaryOnce()
+	})
+
+	if sharedReactorBinaryErr != nil {
+		t.Fatalf("Failed to build shared reactor binary: %v", sharedReactorBinaryErr)
+	}
+
+	return sharedReactorBinary
+}
+
+// buildReactorBinaryOnce builds the reactor binary once for all tests
+func buildReactorBinaryOnce() (string, error) {
 	// Build the reactor binary in OS temp directory
-	tempBinary := filepath.Join(os.TempDir(), "reactor-test-"+randomString(8))
+	tempBinary := filepath.Join(os.TempDir(), "reactor-integration-shared")
 	cmd := exec.Command("go", "build", "-o", tempBinary, "./cmd/reactor")
 
 	// Set the working directory to the project root
 	// When running from pkg/integration, we need to go up two levels
 	workDir, err := filepath.Abs("../..")
 	if err != nil {
-		t.Fatalf("Failed to get project root: %v", err)
+		return "", err
 	}
 	cmd.Dir = workDir
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Failed to build reactor binary: %v\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("build failed: %v\nOutput: %s", err, string(output))
 	}
 
-	return tempBinary
+	return tempBinary, nil
+}
+
+// buildReactorBinary is kept for backward compatibility but now uses shared binary
+func buildReactorBinary(t *testing.T) string {
+	return getSharedReactorBinary(t)
 }
 
 func createTempDir(t *testing.T, name string) string {

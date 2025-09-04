@@ -13,13 +13,13 @@ func TestFindDevContainerFile(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "reactor-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir)) })
 
 	t.Run("finds file in .devcontainer directory", func(t *testing.T) {
 		// Create .devcontainer directory and file
 		devcontainerDir := filepath.Join(tmpDir, ".devcontainer")
 		require.NoError(t, os.MkdirAll(devcontainerDir, 0755))
-		
+
 		configFile := filepath.Join(devcontainerDir, "devcontainer.json")
 		require.NoError(t, os.WriteFile(configFile, []byte(`{"image": "ubuntu"}`), 0644))
 
@@ -34,7 +34,7 @@ func TestFindDevContainerFile(t *testing.T) {
 		// Create a new temp dir for this test
 		tmpDir2, err := os.MkdirTemp("", "reactor-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir2)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir2)) })
 
 		// Create .devcontainer.json in root
 		configFile := filepath.Join(tmpDir2, ".devcontainer.json")
@@ -51,15 +51,15 @@ func TestFindDevContainerFile(t *testing.T) {
 		// Create a new temp dir for this test
 		tmpDir3, err := os.MkdirTemp("", "reactor-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir3)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir3)) })
 
 		// Create both files
 		devcontainerDir := filepath.Join(tmpDir3, ".devcontainer")
 		require.NoError(t, os.MkdirAll(devcontainerDir, 0755))
-		
+
 		preferredFile := filepath.Join(devcontainerDir, "devcontainer.json")
 		require.NoError(t, os.WriteFile(preferredFile, []byte(`{"image": "preferred"}`), 0644))
-		
+
 		rootFile := filepath.Join(tmpDir3, ".devcontainer.json")
 		require.NoError(t, os.WriteFile(rootFile, []byte(`{"image": "root"}`), 0644))
 
@@ -74,7 +74,7 @@ func TestFindDevContainerFile(t *testing.T) {
 		// Create a new temp dir for this test
 		tmpDir4, err := os.MkdirTemp("", "reactor-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir4)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir4)) })
 
 		// Test with empty directory
 		foundPath, found, err := FindDevContainerFile(tmpDir4)
@@ -88,7 +88,7 @@ func TestLoadDevContainerConfig(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "reactor-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir)) })
 
 	t.Run("loads valid JSON config", func(t *testing.T) {
 		configContent := `{
@@ -158,7 +158,7 @@ func TestLoadDevContainerConfig(t *testing.T) {
 
 	t.Run("returns error for nonexistent file", func(t *testing.T) {
 		nonexistentFile := filepath.Join(tmpDir, "nonexistent.json")
-		
+
 		_, err := LoadDevContainerConfig(nonexistentFile)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read devcontainer file")
@@ -186,7 +186,7 @@ func TestServiceResolveConfiguration(t *testing.T) {
 	// Create a temporary directory for testing
 	tmpDir, err := os.MkdirTemp("", "reactor-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir)) })
 
 	t.Run("resolves basic devcontainer config", func(t *testing.T) {
 		// Create devcontainer.json
@@ -210,7 +210,7 @@ func TestServiceResolveConfiguration(t *testing.T) {
 		assert.Equal(t, "ubuntu:latest", resolved.Image)
 		assert.Equal(t, tmpDir, resolved.ProjectRoot)
 		assert.NotEmpty(t, resolved.ProjectHash)
-		assert.NotEmpty(t, resolved.Account) // Should use system username
+		assert.NotEmpty(t, resolved.Account)                           // Should use system username
 		assert.Equal(t, BuiltinProviders["claude"], resolved.Provider) // Default provider
 	})
 
@@ -218,7 +218,7 @@ func TestServiceResolveConfiguration(t *testing.T) {
 		// Create a new temp dir for this test
 		tmpDir2, err := os.MkdirTemp("", "reactor-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir2)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir2)) })
 
 		// Create devcontainer.json with reactor customizations
 		configContent := `{
@@ -249,7 +249,7 @@ func TestServiceResolveConfiguration(t *testing.T) {
 		// Create a new temp dir for this test
 		tmpDir3, err := os.MkdirTemp("", "reactor-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir3)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir3)) })
 
 		// Create service with empty directory
 		service := &Service{
@@ -266,7 +266,7 @@ func TestServiceResolveConfiguration(t *testing.T) {
 		// Create a new temp dir for this test
 		tmpDir4, err := os.MkdirTemp("", "reactor-test-*")
 		require.NoError(t, err)
-		defer os.RemoveAll(tmpDir4)
+		t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir4)) })
 
 		// Create devcontainer.json without image
 		configContent := `{
@@ -289,11 +289,6 @@ func TestServiceResolveConfiguration(t *testing.T) {
 }
 
 func TestCompleteDataFlowTransformation(t *testing.T) {
-	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "reactor-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
 	// Create comprehensive devcontainer.json
 	configContent := `{
 		"name": "full-test-project",
@@ -324,6 +319,11 @@ func TestCompleteDataFlowTransformation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Create isolated temporary directory for this sub-test
+			tmpDir, err := os.MkdirTemp("", "reactor-test-*")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, os.RemoveAll(tmpDir)) })
+
 			// Create directory if needed
 			dir := filepath.Dir(filepath.Join(tmpDir, tc.filePath))
 			if dir != tmpDir {
@@ -335,7 +335,7 @@ func TestCompleteDataFlowTransformation(t *testing.T) {
 			require.NoError(t, os.WriteFile(configFile, []byte(configContent), 0644))
 
 			// Test complete flow: devcontainer.json -> DevContainerConfig -> ResolvedConfig
-			
+
 			// 1. Find file
 			foundPath, found, err := FindDevContainerFile(tmpDir)
 			require.NoError(t, err)
@@ -364,7 +364,7 @@ func TestCompleteDataFlowTransformation(t *testing.T) {
 
 			resolved, err := service.ResolveConfiguration()
 			require.NoError(t, err)
-			
+
 			// Verify the transformation
 			assert.Equal(t, "ubuntu:22.04", resolved.Image)
 			assert.Equal(t, "test-account", resolved.Account)
@@ -374,14 +374,6 @@ func TestCompleteDataFlowTransformation(t *testing.T) {
 			assert.Contains(t, resolved.ProjectConfigDir, resolved.ProjectHash)
 			assert.Equal(t, BuiltinProviders["claude"], resolved.Provider)
 			assert.False(t, resolved.Danger) // Default to safe mode
-
-			// Clean up for next iteration
-			err = os.RemoveAll(configFile)
-			require.NoError(t, err)
-			if dir != tmpDir {
-				err = os.RemoveAll(dir)
-				require.NoError(t, err)
-			}
 		})
 	}
 }

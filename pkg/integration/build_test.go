@@ -29,7 +29,7 @@ func TestBuildFunctionality(t *testing.T) {
 
 	t.Run("basic_dockerfile_build", func(t *testing.T) {
 		isolationPrefix := "build-basic-" + randomString(8)
-		
+
 		// Create separate directory for this subtest
 		subTestDir := filepath.Join(testDir, "basic-build-test")
 		if err := os.MkdirAll(subTestDir, 0755); err != nil {
@@ -82,7 +82,7 @@ CMD ["/bin/sh"]`
 		}
 
 		outputStr := string(output)
-		
+
 		// Should indicate successful build
 		expectedPhrases := []string{
 			"Building Docker image",
@@ -100,7 +100,7 @@ CMD ["/bin/sh"]`
 
 	t.Run("build_with_custom_context", func(t *testing.T) {
 		isolationPrefix := "build-context-" + randomString(8)
-		
+
 		// Create separate directory for this subtest
 		subTestDir := filepath.Join(testDir, "context-build-test")
 		if err := os.MkdirAll(subTestDir, 0755); err != nil {
@@ -188,7 +188,7 @@ app.listen(3000, () => console.log('Server running on port 3000'));`
 		}
 
 		outputStr := string(output)
-		
+
 		// Should indicate successful build with context
 		if !strings.Contains(outputStr, "Building Docker image") {
 			t.Errorf("Expected build output to contain 'Building Docker image' but got: %s", outputStr)
@@ -203,7 +203,7 @@ app.listen(3000, () => console.log('Server running on port 3000'));`
 
 	t.Run("build_error_handling", func(t *testing.T) {
 		isolationPrefix := "build-error-" + randomString(8)
-		
+
 		// Create separate directory for this subtest
 		subTestDir := filepath.Join(testDir, "error-build-test")
 		if err := os.MkdirAll(subTestDir, 0755); err != nil {
@@ -240,7 +240,7 @@ app.listen(3000, () => console.log('Server running on port 3000'));`
 			}
 
 			outputStr := string(output)
-			
+
 			// Should provide helpful error message
 			if !strings.Contains(outputStr, "Dockerfile") && !strings.Contains(outputStr, "not found") {
 				t.Logf("Build failed as expected with missing Dockerfile. Output: %s", outputStr)
@@ -296,7 +296,7 @@ FROM alpine:latest`
 
 	t.Run("build_creates_reusable_image", func(t *testing.T) {
 		isolationPrefix := "build-reuse-" + randomString(8)
-		
+
 		// Create separate directory for this subtest
 		subTestDir := filepath.Join(testDir, "build-reuse-test")
 		if err := os.MkdirAll(subTestDir, 0755); err != nil {
@@ -369,7 +369,7 @@ CMD ["/bin/sh"]`
 
 	t.Run("build_without_devcontainer", func(t *testing.T) {
 		isolationPrefix := "build-no-devcontainer-" + randomString(8)
-		
+
 		// Create separate directory for this subtest - no devcontainer.json
 		subTestDir := filepath.Join(testDir, "no-devcontainer-test")
 		if err := os.MkdirAll(subTestDir, 0755); err != nil {
@@ -387,7 +387,7 @@ CMD ["/bin/sh"]`
 		}
 
 		outputStr := string(output)
-		
+
 		// Should indicate missing devcontainer.json
 		if !strings.Contains(outputStr, "devcontainer.json") {
 			t.Errorf("Expected error message to mention devcontainer.json but got: %s", outputStr)
