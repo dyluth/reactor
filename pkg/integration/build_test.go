@@ -16,10 +16,10 @@ func TestBuildFunctionality(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
-	// Ensure Docker cleanup runs after test completion for all build test prefixes
+	// Ensure Docker cleanup runs after test completion
 	t.Cleanup(func() {
-		if err := testutil.CleanupTestContainers("build-"); err != nil {
-			t.Logf("Warning: failed to cleanup build test containers: %v", err)
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
 		}
 	})
 

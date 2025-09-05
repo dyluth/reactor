@@ -15,6 +15,13 @@ import (
 func TestWorkspaceParser(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	t.Run("FindWorkspaceFile", func(t *testing.T) {
 		// Create temporary directory
 		tmpDir, err := os.MkdirTemp("", "workspace-test-*")
@@ -271,6 +278,13 @@ services:
 func TestWorkspaceValidationIntegration(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	t.Run("ValidateWorkspaceWithValidServices", func(t *testing.T) {
 		// Create workspace structure
 		tmpDir, err := os.MkdirTemp("", "workspace-validation-*")
@@ -352,6 +366,13 @@ services:
 
 func TestWorkspaceContainerNaming(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	t.Run("GenerateWorkspaceContainerNames", func(t *testing.T) {
 		tmpDir, err := os.MkdirTemp("", "workspace-naming-*")

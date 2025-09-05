@@ -22,7 +22,7 @@ func TestAccountBasedCredentialMounting(t *testing.T) {
 
 	// Ensure Docker cleanup runs after test completion
 	t.Cleanup(func() {
-		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
 			t.Logf("Warning: failed to cleanup test containers: %v", err)
 		}
 	})
@@ -219,11 +219,9 @@ func TestDefaultCommandEntrypoint(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
-	isolationPrefix := "test-default-" + randomTestString(8)
-
 	// Ensure Docker cleanup runs after test completion
 	t.Cleanup(func() {
-		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
 			t.Logf("Warning: failed to cleanup test containers: %v", err)
 		}
 	})
@@ -332,11 +330,9 @@ func TestAccountFallbackBehavior(t *testing.T) {
 	homeDir, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
-	isolationPrefix := "test-fallback-" + randomTestString(8)
-
 	// Ensure Docker cleanup runs after test completion
 	t.Cleanup(func() {
-		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
 			t.Logf("Warning: failed to cleanup test containers: %v", err)
 		}
 	})

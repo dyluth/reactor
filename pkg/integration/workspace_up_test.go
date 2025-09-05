@@ -21,6 +21,13 @@ import (
 func TestWorkspaceUpBasicFunctionality(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Create workspace structure
 	tmpDir, err := os.MkdirTemp("", "workspace-up-test-*")
 	require.NoError(t, err)
@@ -123,6 +130,13 @@ func TestWorkspaceUpBasicFunctionality(t *testing.T) {
 func TestWorkspaceUpPortConflictDetection(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Create workspace with port conflicts
 	tmpDir, err := os.MkdirTemp("", "workspace-port-conflict-*")
 	require.NoError(t, err)
@@ -181,6 +195,13 @@ func TestWorkspaceUpPortConflictDetection(t *testing.T) {
 
 func TestWorkspaceContainerNamingConventions(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	// Create workspace structure
 	tmpDir, err := os.MkdirTemp("", "workspace-naming-test-*")
@@ -311,6 +332,13 @@ services:
 }
 func TestWorkspaceExecBasicFunctionality(t *testing.T) {
 	testutil.SetupIsolatedTest(t)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	// Create workspace structure
 	tmpDir, err := os.MkdirTemp("", "workspace-exec-test-*")

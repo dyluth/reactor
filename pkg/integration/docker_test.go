@@ -80,7 +80,7 @@ func TestSessionsListOutput(t *testing.T) {
 
 	// Ensure Docker cleanup runs after test completion
 	t.Cleanup(func() {
-		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
 			t.Logf("Warning: failed to cleanup test containers: %v", err)
 		}
 	})
