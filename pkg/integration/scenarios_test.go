@@ -16,6 +16,13 @@ func TestEndToEndScenarios(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	reactorBinary := buildReactorBinary(t)
 
 	t.Run("developer workflow - config and sessions", func(t *testing.T) {
@@ -292,6 +299,13 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	reactorBinary := buildReactorBinary(t)
 
 	t.Run("invalid configuration values", func(t *testing.T) {
@@ -388,6 +402,13 @@ func TestContainerNameGeneration(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	reactorBinary := buildReactorBinary(t)
 

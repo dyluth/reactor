@@ -154,6 +154,19 @@ func (s *Service) CreateContainer(ctx context.Context, spec *ContainerSpec) (Con
 		}
 	}
 
+	// Prepare labels - start with spec.Labels and add test label if in test environment
+	labels := make(map[string]string)
+	if spec.Labels != nil {
+		for k, v := range spec.Labels {
+			labels[k] = v
+		}
+	}
+
+	// Add test label if REACTOR_ISOLATION_PREFIX is set (indicates test run)
+	if os.Getenv("REACTOR_ISOLATION_PREFIX") != "" {
+		labels["com.reactor.test"] = "true"
+	}
+
 	// Create container configuration
 	containerConfig := &container.Config{
 		Image:        spec.Image,
@@ -162,6 +175,7 @@ func (s *Service) CreateContainer(ctx context.Context, spec *ContainerSpec) (Con
 		User:         spec.User,
 		Env:          spec.Environment,
 		ExposedPorts: exposedPorts,
+		Labels:       labels,
 	}
 
 	// Create host configuration (mounts, network, ports, etc.)
@@ -250,6 +264,7 @@ type ContainerSpec struct {
 	Mounts       []string      // In "source:target:mode" format
 	PortMappings []PortMapping // Port forwarding configurations
 	NetworkMode  string
+	Labels       map[string]string // Docker labels for container identification
 }
 
 // ListReactorContainers returns all containers that match the reactor naming pattern
@@ -294,6 +309,55 @@ func (s *Service) ListReactorContainers(ctx context.Context) ([]ContainerInfo, e
 	}
 
 	return reactorContainers, nil
+}
+
+// ListContainersByLabel returns all containers that have the specified label
+func (s *Service) ListContainersByLabel(ctx context.Context, labelKey, labelValue string) ([]ContainerInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	containers, err := s.client.ContainerList(ctx, container.ListOptions{
+		All: true, // Include stopped containers
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers by label %s=%s: %w", labelKey, labelValue, err)
+	}
+
+	var matchingContainers []ContainerInfo
+	for _, c := range containers {
+		// Check if container has the specified label with the specified value
+		if c.Labels != nil {
+			if value, exists := c.Labels[labelKey]; !exists || value != labelValue {
+				continue // Skip containers that don't have the label or have different value
+			}
+		} else {
+			continue // Skip containers with no labels
+		}
+		containerName := ""
+		if len(c.Names) > 0 {
+			// Container names have leading slash, so remove it
+			containerName = strings.TrimPrefix(c.Names[0], "/")
+		}
+
+		var status ContainerStatus
+		switch c.State {
+		case "running":
+			status = StatusRunning
+		case "exited", "stopped":
+			status = StatusStopped
+		default:
+			status = StatusNotFound
+		}
+
+		matchingContainers = append(matchingContainers, ContainerInfo{
+			ID:     c.ID,
+			Name:   containerName,
+			Status: status,
+			Image:  c.Image,
+		})
+	}
+
+	return matchingContainers, nil
 }
 
 // FindProjectContainer finds a container for a specific project path

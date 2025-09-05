@@ -16,6 +16,13 @@ func TestBuildFunctionality(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	// Ensure Docker cleanup runs after test completion for all build test prefixes
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers("build-"); err != nil {
+			t.Logf("Warning: failed to cleanup build test containers: %v", err)
+		}
+	})
+
 	// Get shared reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
 

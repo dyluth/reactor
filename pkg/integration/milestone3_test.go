@@ -1,12 +1,15 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/docker/docker/client"
+	"github.com/dyluth/reactor/pkg/docker"
 	"github.com/dyluth/reactor/pkg/testutil"
 )
 
@@ -14,6 +17,15 @@ import (
 func TestAccountBasedCredentialMounting(t *testing.T) {
 	homeDir, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	isolationPrefix := "test-cred-" + randomTestString(8)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	// Get shared reactor binary for testing
 	reactorBinary := buildReactorForTest(t)
@@ -52,8 +64,13 @@ func TestAccountBasedCredentialMounting(t *testing.T) {
 	}
 
 	// Get the actual project hash that reactor will compute for this test directory
+	// IMPORTANT: Use the same isolation environment that will be used later for "reactor up"
+	isolationEnv := os.Environ()
+	isolationEnv = append(isolationEnv, "REACTOR_ISOLATION_PREFIX="+isolationPrefix)
+
 	configCmd := exec.Command(reactorBinary, "config", "show")
 	configCmd.Dir = testDir
+	configCmd.Env = isolationEnv // Use the isolation environment
 	configOutput, err := configCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to get project hash: %v\nOutput: %s", err, string(configOutput))
@@ -83,47 +100,133 @@ func TestAccountBasedCredentialMounting(t *testing.T) {
 		}
 	}
 
-	// Test that the mount configuration is correct by running config show
-	// which will create and validate the blueprint without starting a container
-	cmd := exec.Command(reactorBinary, "config", "show")
-	cmd.Dir = testDir
-	cmd.Env = os.Environ()
-	output, err := cmd.CombinedOutput()
+	// First, verify basic config parsing works
+	configCmd = exec.Command(reactorBinary, "config", "show")
+	configCmd.Dir = testDir
+	configCmd.Env = os.Environ()
+	configOutput, err = configCmd.CombinedOutput()
 	if err != nil {
-		t.Logf("Command output: %s", string(output))
+		t.Logf("Command output: %s", string(configOutput))
 		t.Fatalf("reactor config show failed: %v", err)
 	}
 
-	outputStr := string(output)
+	configOutputStr := string(configOutput)
 
 	// Verify that the account-based configuration is parsed correctly
-	if !strings.Contains(outputStr, "account:         work-account") {
-		t.Errorf("Expected account to be 'work-account', but config show output was: %s", outputStr)
+	if !strings.Contains(configOutputStr, "account:         work-account") {
+		t.Errorf("Expected account to be 'work-account', but config show output was: %s", configOutputStr)
 	}
 
-	// Verify that project configuration directory is set up correctly
-	// Extract the actual project hash from config output again to ensure we have the current value
-	actualProjectHash := ""
-	for _, line := range strings.Split(outputStr, "\n") {
-		if strings.Contains(line, "project hash:") {
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				actualProjectHash = parts[2]
-				break
-			}
+	// Now test with Docker inspect SDK to verify credential mounts
+	// Step 1: Run reactor up (using the same isolationEnv from above)
+	upCmd := exec.Command(reactorBinary, "up", "--", "echo", "test")
+	upCmd.Dir = testDir
+	upCmd.Env = isolationEnv
+	output, err := upCmd.CombinedOutput()
+
+	t.Logf("reactor up command output: %s", string(output))
+	if err != nil {
+		t.Logf("reactor up command failed (this may be expected): %v", err)
+	}
+
+	// Step 2: Use Docker Go SDK to find the container by test label
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		t.Fatalf("Failed to initialize Docker service: %v", err)
+	}
+	defer func() { _ = dockerService.Close() }()
+
+	testContainers, err := dockerService.ListContainersByLabel(ctx, "com.reactor.test", "true")
+	if err != nil {
+		t.Fatalf("Failed to list containers by test label: %v", err)
+	}
+
+	var targetContainer *docker.ContainerInfo
+	for _, container := range testContainers {
+		if strings.Contains(container.Name, isolationPrefix) {
+			targetContainer = &container
+			break
 		}
 	}
 
-	expectedConfigDir := filepath.Join(homeDir, ".reactor", "work-account", actualProjectHash)
-	if !strings.Contains(outputStr, expectedConfigDir) {
-		t.Errorf("Expected project config directory to contain '%s', but config show output was: %s", expectedConfigDir, outputStr)
+	if targetContainer == nil {
+		t.Fatalf("No test container found with isolation prefix '%s'", isolationPrefix)
 	}
+
+	t.Logf("Found container for inspection: %s (%s)", targetContainer.Name, targetContainer.ID)
+
+	// Step 3: Use Docker Go SDK to inspect the container
+	// We need to access the Docker client directly for ContainerInspect
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		t.Fatalf("Failed to create Docker client for inspect: %v", err)
+	}
+	defer func() { _ = dockerClient.Close() }()
+
+	containerData, err := dockerClient.ContainerInspect(ctx, targetContainer.ID)
+	if err != nil {
+		t.Fatalf("Failed to inspect container %s: %v", targetContainer.ID, err)
+	}
+
+	// Step 4: Iterate through container.Mounts array to find credential mounts
+	// We need to use the same isolation prefix logic that GetReactorHomeDir() uses
+	reactorDirName := ".reactor"
+	if isolationPrefix != "" {
+		reactorDirName = ".reactor-" + isolationPrefix
+	}
+	expectedCredentialDir := filepath.Join(homeDir, reactorDirName, testAccount, projectHash)
+
+	// Step 5: Assert that mount exists with correct source and destination
+	// The mount source should be the claude subdirectory inside the credential directory
+	expectedClaudeCredentialDir := filepath.Join(expectedCredentialDir, "claude")
+	expectedClaudeCredentialDirAbs, err := filepath.Abs(expectedClaudeCredentialDir)
+	if err != nil {
+		t.Fatalf("Failed to get absolute path for claude credential directory: %v", err)
+	}
+
+	var credentialMountFound bool
+	for _, mount := range containerData.Mounts {
+		mountSourceAbs, err := filepath.Abs(mount.Source)
+		if err != nil {
+			t.Logf("Warning: Failed to get absolute path for mount source %s: %v", mount.Source, err)
+			continue
+		}
+
+		t.Logf("Checking mount: %s -> %s", mountSourceAbs, mount.Destination)
+
+		// Check if this is the claude credential mount
+		if mount.Destination == "/home/claude/.claude" && mountSourceAbs == expectedClaudeCredentialDirAbs {
+			credentialMountFound = true
+			t.Logf("Found claude credential mount: %s -> %s", mountSourceAbs, mount.Destination)
+			break
+		}
+	}
+
+	if !credentialMountFound {
+		t.Errorf("Expected claude credential mount not found. Expected: %s -> /home/claude/.claude", expectedClaudeCredentialDirAbs)
+		t.Logf("All mounts in container:")
+		for _, mount := range containerData.Mounts {
+			t.Logf("  %s -> %s", mount.Source, mount.Destination)
+		}
+	}
+
+	t.Logf("Successfully verified account-based credential mounting using Docker SDK inspect")
 }
 
 // TestDefaultCommandEntrypoint tests the defaultCommand functionality
 func TestDefaultCommandEntrypoint(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	isolationPrefix := "test-default-" + randomTestString(8)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	// Get shared reactor binary for testing
 	reactorBinary := buildReactorForTest(t)
@@ -228,6 +331,15 @@ func TestDefaultCommandEntrypoint(t *testing.T) {
 func TestAccountFallbackBehavior(t *testing.T) {
 	homeDir, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	isolationPrefix := "test-fallback-" + randomTestString(8)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	// Get shared reactor binary for testing
 	reactorBinary := buildReactorForTest(t)

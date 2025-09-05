@@ -15,6 +15,13 @@ func TestSecurityFoundations(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Get shared reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
 

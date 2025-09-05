@@ -26,6 +26,13 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Get shared reactor binary for testing
 	reactorBinary := buildReactorBinary(t)
 
@@ -97,6 +104,13 @@ func TestReactorConfigOperations(t *testing.T) {
 	// Set up isolated test environment
 	_, tempDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	reactorBinary := buildReactorBinary(t)
 
@@ -243,6 +257,13 @@ func TestReactorConfigOperations(t *testing.T) {
 func TestContainerNaming(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	reactorBinary := buildReactorBinary(t)
 

@@ -1,9 +1,10 @@
 # **Feature Design Document: M3 - Reactor-Specific Extensions**
 
-Version: 1.0
-Status: Approved
+Version: 1.1
+Status: Implementation Ready
 Author(s): Gemini, cam
 Date: 2025-09-02
+Updated: 2025-01-17
 
 ## **1. The 'Why': Rationale & User Focus**
 
@@ -30,7 +31,7 @@ While Dev Containers standardize the development environment, they don't have a 
 
 **Technical Metrics:**
 
-*   When `customizations.reactor.account` is set, `reactor up` correctly mounts the corresponding directories from the host's `~/.reactor/{account}/` into the container.
+*   When `customizations.reactor.account` is set, `reactor up` correctly mounts the corresponding directories from the host's `~/.reactor/{account}/{project-hash}/{provider}/` into the container for all configured providers.
 *   When `customizations.reactor.defaultCommand` is set, the container starts and executes that command as its entrypoint.
 *   If the `account` property is omitted, the system gracefully falls back to using the system username, maintaining existing behavior.
 *   The implementation is covered by unit and integration tests.
@@ -49,14 +50,29 @@ The implementation will primarily touch the `pkg/config` service and the `pkg/co
 
 #### **2.2.1. Configuration Flow (`pkg/config`)**
 
-The `config.Service` already parses the `customizations.reactor` block. The key change is to ensure the `account` and `defaultCommand` values are consistently plumbed through to the `ResolvedConfig` struct.
+The `config.Service` already parses the `customizations.reactor` block. The key changes are:
 
-*   **`account` fallback:** If `customizations.reactor.account` is not present or is empty, the `account` field in `ResolvedConfig` **must** fall back to the system username. This ensures backward compatibility and a smooth experience for users not using the feature.
+1. **Add `DefaultCommand` field to `ResolvedConfig`** - This field must be added to the struct in `pkg/config/models.go`
+2. **Update mapping function** - The `mapToResolvedConfig()` function in `pkg/config/service.go` must be updated to extract and map the `defaultCommand` value
+
+*   **`account` fallback:** If `customizations.reactor.account` is not present or is empty, the `account` field in `ResolvedConfig` **must** fall back to the system username. This ensures backward compatibility and a smooth experience for users not using the feature. *(Already implemented)*
 *   **`defaultCommand` fallback:** If `customizations.reactor.defaultCommand` is not present or empty, the `defaultCommand` field in `ResolvedConfig` should be empty, allowing the core logic to default to `/bin/bash`.
 
 #### **2.2.2. Core Logic Updates (`pkg/core`)**
 
-The `NewContainerBlueprint` function in `pkg/core/blueprint.go` will be updated to use the new fields from `ResolvedConfig`.
+**BREAKING CHANGE:** The `NewContainerBlueprint` function signature will be updated to remove the `mounts []MountSpec` parameter, as the function will now be responsible for constructing ALL mounts internally.
+
+**New Signature:**
+```go
+func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, dockerHostIntegration bool, portMappings []PortMapping) *ContainerBlueprint
+```
+
+**Mount Construction Logic:**
+The function will construct all mounts internally in the following order:
+1. **Workspace Mount** (unless in discovery mode): `/workspace` ← `resolved.ProjectRoot`
+2. **Provider Credential Mounts** (unless in discovery mode): For ALL providers in `config.BuiltinProviders`
+
+**Implementation Details:**
 
 1.  **`defaultCommand` Logic:**
     *   The function will check `resolved.DefaultCommand`.
@@ -64,49 +80,70 @@ The `NewContainerBlueprint` function in `pkg/core/blueprint.go` will be updated 
     *   If it is empty, `blueprint.Command` will be set to the default shell `[]string{"/bin/bash"}` as it is now.
 
 2.  **Account Mount Logic:**
-    *   This is the most significant change. The function will now be responsible for constructing the credential mounts.
-    *   It will iterate through the `config.BuiltinProviders` map (which contains `claude`, `gemini`, etc.).
-    *   For each provider, it will construct a mount spec:
-        *   **Host Source Path:** `~/.reactor/{resolved.Account}/{provider.Mounts.Source}`. The path must be resolved to an absolute path on the host.
-        *   **Container Target Path:** `{provider.Mounts.Target}`.
-    *   These mount specs will be added to the `blueprint.Mounts` slice, in addition to the project workspace mount.
-    *   **Important:** The host source directories (e.g., `~/.reactor/work-account/claude`) do **not** need to exist at runtime. Docker will automatically create them on the host if they are missing when the container starts. This simplifies the logic, as we don't need to pre-create them.
+    *   **Multi-Provider Support:** The function will iterate through ALL providers in the `config.BuiltinProviders` map (`claude`, `gemini`, etc.) to provide a complete credential environment.
+    *   **Nested Mount Iteration:** For each provider, iterate through ALL mount points in `provider.Mounts` (supporting providers with multiple mount locations).
+    *   **Host Path Construction:** `filepath.Join(resolved.ProjectConfigDir, mount.Source)` where `resolved.ProjectConfigDir` is `~/.reactor/{account}/{project-hash}/`
+    *   **Container Target Path:** Use `mount.Target` directly from the provider configuration.
+    *   **Path Resolution:** Use existing `config.GetReactorHomeDir()` for consistent home directory handling across test and production environments.
 
-### **2.3. Phased implementation plan**
+**Directory Management:**
+*   **No Pre-validation:** All directory existence validation has been removed. Docker's bind mount functionality will automatically create the entire directory path on the host if missing.
+*   **StateService Removal:** The `StateService` has been entirely removed as its responsibilities (directory validation and mount construction) are no longer needed.
 
-This can be implemented as two separate, sequential PRs.
+### **2.3. Implementation plan**
 
-*   **PR 1: Implement Account-Based Secret Management**
-    *   [ ] In `pkg/core/blueprint.go`, update `NewContainerBlueprint` to iterate through the `BuiltinProviders` and construct the appropriate volume mounts based on the `resolved.Account`.
-    *   [ ] Ensure the host path is correctly resolved to an absolute path.
-    *   [ ] Add an integration test with a fixture that sets `customizations.reactor.account`. The test must create a dummy credential file on the host, run `reactor up`, and verify the file exists at the correct location inside the container.
+This will be implemented as a single comprehensive PR to maintain architectural consistency.
 
-*   **PR 2: Implement Optional AI Entrypoint**
-    *   [ ] In `pkg/config/service.go`, ensure `defaultCommand` is correctly passed to `ResolvedConfig`.
-    *   [ ] In `pkg/core/blueprint.go`, update `NewContainerBlueprint` to use `resolved.DefaultCommand` for the container's entrypoint, falling back to a shell if it's not set.
-    *   [ ] Add an integration test with a fixture that sets `defaultCommand` to `["echo", "hello reactor"]`. The test will run `reactor up` and assert that the container output is "hello reactor" and that it exits gracefully (i.e., does not start an interactive session).
+**Core Implementation Tasks:**
+*   [ ] **Config Layer Updates:**
+    *   Add `DefaultCommand string` field to `ResolvedConfig` struct in `pkg/config/models.go`
+    *   Update `mapToResolvedConfig()` in `pkg/config/service.go` to extract and map `defaultCommand` from reactor customizations
+*   [ ] **Core Logic Updates:**
+    *   Update `NewContainerBlueprint` function signature in `pkg/core/blueprint.go` (remove `mounts` parameter)
+    *   Implement internal mount construction for workspace and all provider credentials
+    *   Add `defaultCommand` logic with fallback to `/bin/bash`
+*   [ ] **Architecture Cleanup:**
+    *   Remove `StateService` entirely from `pkg/core/state.go`
+    *   Update all callsites of `NewContainerBlueprint` (primarily `upCmdHandler` in `cmd/reactor/main.go`)
+    *   Remove StateService usage from tests
+*   [ ] **Testing:**
+    *   Extend `testutil` package for temporary credential directory management
+    *   Add unit tests for blueprint creation with multiple providers and mount points
+    *   Add integration test for account-based credential mounting
+    *   Add integration test for defaultCommand functionality
 
 ### **2.4. Testing strategy**
 
 *   **Unit Tests:**
-    *   Add unit tests for the blueprint creation logic to verify that the mount paths are constructed correctly for different account names.
-    *   Add unit tests to verify the container command is set correctly based on `defaultCommand`.
+    *   **Mount Path Construction:** Verify mount paths are constructed correctly for different account names and all provider combinations
+    *   **Multi-Provider Support:** Test that ALL providers in `BuiltinProviders` get credential mounts created
+    *   **Multiple Mount Points:** Test providers with multiple mount points per provider (future-proofing)
+    *   **DefaultCommand Logic:** Test command setting with various defaultCommand values and empty fallback
+    *   **Discovery Mode:** Verify no mounts are created when `isDiscovery = true`
+
 *   **Integration Tests:**
     *   **Account Mount Test:**
-        1.  Create a test-specific account directory on the host (e.g., `/tmp/test-home/.reactor/test-account/claude`).
-        2.  Place a file (`test-creds.txt`) inside it.
-        3.  Use a `devcontainer.json` that specifies `"account": "test-account"`.
-        4.  Run `reactor up`.
-        5.  Use `docker exec` to verify that `/home/claude/.claude/test-creds.txt` exists inside the container.
+        1.  Use `testutil` to create isolated temporary credential directories: `temp-home/.reactor/{test-account}/{project-hash}/{provider}/`
+        2.  Place test files in multiple provider directories (e.g., `claude/test-creds.txt`, `gemini/test-creds.txt`)
+        3.  Use a `devcontainer.json` that specifies `"account": "test-account"`
+        4.  Run `reactor up`
+        5.  Use `docker exec` to verify files exist at ALL expected container locations (`/home/claude/.claude/test-creds.txt`, `/home/claude/.gemini/test-creds.txt`)
     *   **Default Command Test:**
         1.  Use a `devcontainer.json` that specifies `"defaultCommand": "echo 'init command successful'"`
-        2.  Run `reactor up` and capture the container's output.
-        3.  Assert that the output contains "init command successful".
-        4.  Assert that `reactor up` exits with code 0 after the command completes.
+        2.  Run `reactor up` and capture the container's output
+        3.  Assert that the output contains "init command successful"
+        4.  Assert that `reactor up` exits with code 0 after the command completes
 
 ## **3. The 'What Ifs': Risks & Mitigation**
 
 *   **Risk:** A user specifies an account in `devcontainer.json`, but the corresponding directory does not exist on the host.
-*   **Mitigation:** This is not an error condition. Docker's bind mount functionality will automatically create the directory on the host with root ownership. This is acceptable default behavior. Our documentation should explain how to pre-populate these directories.
+*   **Mitigation:** This is not an error condition. Docker's bind mount functionality will automatically create the entire directory path on the host (`~/.reactor/{account}/{project-hash}/{provider}/`) with appropriate ownership. This design eliminates the need for pre-validation and simplifies the user experience.
+
 *   **Risk:** A user specifies an invalid `defaultCommand` that doesn't exist in the container's `PATH`.
 *   **Mitigation:** The container will fail to start, and the Docker error message will be streamed to the user. This is standard, expected behavior, and `reactor` does not need to add extra validation for it.
+
+*   **Risk:** StateService removal could break existing functionality if it has responsibilities beyond mount management.
+*   **Mitigation:** Comprehensive testing during implementation will verify that all StateService responsibilities have been properly migrated or are no longer needed. The service's primary functions (directory validation and mount construction) are being replaced by Docker's native capabilities and centralized blueprint logic.
+
+*   **Risk:** Mounting credentials for ALL providers could create unnecessary container clutter or security concerns.
+*   **Mitigation:** This design provides maximum utility by giving users access to all configured AI tools within a single environment. Empty directories (when users don't have specific provider credentials) are harmless and provide a consistent experience. Users maintain control through the account selection mechanism.

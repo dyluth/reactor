@@ -17,6 +17,15 @@ func TestBasicReactorFunctionality(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	isolationPrefix := "test-basic-" + randomTestString(8)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Build reactor binary for testing
 	reactorBinary := buildReactorForTest(t)
 
@@ -27,8 +36,6 @@ func TestBasicReactorFunctionality(t *testing.T) {
 		t.Fatalf("Failed to change to test directory: %v", err)
 	}
 	defer func() { _ = os.Chdir(originalWD) }()
-
-	isolationPrefix := "test-basic-" + randomTestString(8)
 
 	t.Run("basic CLI commands work", func(t *testing.T) {
 		// Test help command
@@ -155,6 +162,15 @@ func TestDevContainerFunctionality(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	isolationPrefix := "test-dev-" + randomTestString(8)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Build reactor binary for testing
 	reactorBinary := buildReactorForTest(t)
 
@@ -165,8 +181,6 @@ func TestDevContainerFunctionality(t *testing.T) {
 		t.Fatalf("Failed to change to test directory: %v", err)
 	}
 	defer func() { _ = os.Chdir(originalWD) }()
-
-	isolationPrefix := "test-devcontainer-" + randomTestString(8)
 
 	t.Run("devcontainer.json with forwardPorts and remoteUser", func(t *testing.T) {
 		// Create a devcontainer.json with forwardPorts and remoteUser
@@ -265,6 +279,15 @@ func TestPostCreateCommandFunctionality(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	isolationPrefix := "test-postcreate-" + randomTestString(8)
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupTestContainers(isolationPrefix); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
 	// Build reactor binary for testing
 	reactorBinary := buildReactorForTest(t)
 
@@ -275,8 +298,6 @@ func TestPostCreateCommandFunctionality(t *testing.T) {
 		t.Fatalf("Failed to change to test directory: %v", err)
 	}
 	defer func() { _ = os.Chdir(originalWD) }()
-
-	isolationPrefix := "test-postcreate-" + randomTestString(8)
 
 	t.Run("string postCreateCommand executes successfully", func(t *testing.T) {
 		// Create a devcontainer.json with string postCreateCommand

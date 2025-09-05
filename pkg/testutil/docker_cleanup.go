@@ -4,19 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/dyluth/reactor/pkg/docker"
 )
 
 // CleanupTestContainers provides comprehensive cleanup for reactor containers created during integration tests.
-// This function implements the self-cleaning container approach to resolve permission issues
-// where containers create files with different ownership that Go test cleanup cannot remove.
+// This function uses Docker labels to identify test containers, providing a more robust cleanup mechanism
+// that doesn't rely on name patterns which can be unreliable.
 func CleanupTestContainers(isolationPrefix string) error {
-	if isolationPrefix == "" {
-		return fmt.Errorf("isolation prefix cannot be empty")
-	}
+	// Note: isolationPrefix is kept for backward compatibility but we now use Docker labels
+	// for more reliable test container identification
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -34,18 +32,10 @@ func CleanupTestContainers(isolationPrefix string) error {
 		return nil
 	}
 
-	// List all reactor containers
-	allContainers, err := dockerService.ListReactorContainers(ctx)
+	// Find all containers with the test label
+	testContainers, err := dockerService.ListContainersByLabel(ctx, "com.reactor.test", "true")
 	if err != nil {
-		return fmt.Errorf("failed to list reactor containers: %w", err)
-	}
-
-	// Filter containers that match our isolation prefix
-	var testContainers []docker.ContainerInfo
-	for _, container := range allContainers {
-		if strings.Contains(container.Name, isolationPrefix) {
-			testContainers = append(testContainers, container)
-		}
+		return fmt.Errorf("failed to list test containers by label: %w", err)
 	}
 
 	if len(testContainers) == 0 {
@@ -53,9 +43,9 @@ func CleanupTestContainers(isolationPrefix string) error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Cleaning up %d test containers with prefix %s\n", len(testContainers), isolationPrefix)
+	fmt.Fprintf(os.Stderr, "Cleaning up %d test containers with test label\n", len(testContainers))
 
-	// Clean up each test container using self-cleaning approach
+	// Clean up each test container with force removal
 	for _, container := range testContainers {
 		if err := cleanupTestContainer(ctx, dockerService, container); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup container %s: %v\n", container.Name, err)
@@ -66,11 +56,11 @@ func CleanupTestContainers(isolationPrefix string) error {
 	return nil
 }
 
-// cleanupTestContainer removes a single test container using standard removal
+// cleanupTestContainer removes a single test container with force removal to ensure cleanup
 func cleanupTestContainer(ctx context.Context, dockerService *docker.Service, container docker.ContainerInfo) error {
-	fmt.Fprintf(os.Stderr, "Cleaning container %s (status: %s)\n", container.Name, container.Status)
+	fmt.Fprintf(os.Stderr, "Force cleaning container %s (status: %s)\n", container.Name, container.Status)
 
-	// Use standard container removal - file cleanup is now handled by RobustRemoveAll
+	// Use force removal to ensure container is cleaned up even if running
 	return dockerService.RemoveContainer(ctx, container.ID)
 }
 
@@ -86,26 +76,9 @@ func AutoCleanupTestContainers() error {
 	return CleanupTestContainers(isolationPrefix)
 }
 
-// CleanupAllTestContainers cleans up all test containers that match common test prefixes.
+// CleanupAllTestContainers cleans up all test containers using Docker labels.
 // This is useful for cleaning up accumulated state from previous failed test runs.
 func CleanupAllTestContainers() error {
-	testPrefixes := []string{
-		"test-",
-		"security-test-",
-		"test-e2e-",
-		"test-multi-",
-		"test-verbose-",
-		"test-recovery-",
-		"test-naming-",
-		"test-docker-",
-		"test-sessions-",
-		"test-sanitize-",
-		"test-integration-",
-		"test-config-",
-		"test-isolation-",
-		"test-errors-",
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
@@ -122,21 +95,10 @@ func CleanupAllTestContainers() error {
 		return nil
 	}
 
-	// List all reactor containers
-	allContainers, err := dockerService.ListReactorContainers(ctx)
+	// Find all containers with the test label
+	testContainers, err := dockerService.ListContainersByLabel(ctx, "com.reactor.test", "true")
 	if err != nil {
-		return fmt.Errorf("failed to list reactor containers: %w", err)
-	}
-
-	// Filter containers that match test prefixes
-	var testContainers []docker.ContainerInfo
-	for _, container := range allContainers {
-		for _, prefix := range testPrefixes {
-			if strings.Contains(container.Name, prefix) {
-				testContainers = append(testContainers, container)
-				break // Found a match, don't check other prefixes
-			}
-		}
+		return fmt.Errorf("failed to list test containers by label: %w", err)
 	}
 
 	if len(testContainers) == 0 {
@@ -144,9 +106,9 @@ func CleanupAllTestContainers() error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "Cleaning up %d accumulated test containers\n", len(testContainers))
+	fmt.Fprintf(os.Stderr, "Cleaning up %d accumulated test containers with test label\n", len(testContainers))
 
-	// Clean up each test container using self-cleaning approach
+	// Clean up each test container with force removal
 	for _, container := range testContainers {
 		if err := cleanupTestContainer(ctx, dockerService, container); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to cleanup container %s: %v\n", container.Name, err)

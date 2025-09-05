@@ -3,16 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/dyluth/reactor/pkg/config"
 	"github.com/dyluth/reactor/pkg/core"
 	"github.com/dyluth/reactor/pkg/docker"
+	"github.com/dyluth/reactor/pkg/orchestrator"
 	"github.com/spf13/cobra"
 )
 
@@ -22,114 +20,6 @@ var (
 	GitCommit = "unknown"
 	BuildDate = "unknown"
 )
-
-// PortMapping represents a port forwarding configuration
-type PortMapping struct {
-	HostPort      int
-	ContainerPort int
-}
-
-// parsePortMappings parses and validates port mapping strings in the format "host:container"
-func parsePortMappings(portStrings []string) ([]PortMapping, error) {
-	var mappings []PortMapping
-
-	for _, portStr := range portStrings {
-		parts := strings.Split(portStr, ":")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid port mapping format '%s': expected 'host:container'", portStr)
-		}
-
-		hostPort, err := strconv.Atoi(parts[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid host port '%s': must be a number", parts[0])
-		}
-
-		containerPort, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return nil, fmt.Errorf("invalid container port '%s': must be a number", parts[1])
-		}
-
-		// Validate port ranges
-		if hostPort < 1 || hostPort > 65535 {
-			return nil, fmt.Errorf("host port %d is out of valid range (1-65535)", hostPort)
-		}
-		if containerPort < 1 || containerPort > 65535 {
-			return nil, fmt.Errorf("container port %d is out of valid range (1-65535)", containerPort)
-		}
-
-		mappings = append(mappings, PortMapping{
-			HostPort:      hostPort,
-			ContainerPort: containerPort,
-		})
-	}
-
-	return mappings, nil
-}
-
-// checkPortConflicts checks if any of the host ports are already in use
-func checkPortConflicts(mappings []PortMapping) []int {
-	var conflictPorts []int
-
-	for _, pm := range mappings {
-		// Try to listen on the host port briefly to check if it's available
-		addr := fmt.Sprintf(":%d", pm.HostPort)
-		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
-		if err == nil {
-			// Port is open (something is listening)
-			_ = conn.Close()
-			conflictPorts = append(conflictPorts, pm.HostPort)
-		} else {
-			// Try to bind to the port to see if it's available
-			listener, err := net.Listen("tcp", addr)
-			if err != nil {
-				// Port is likely in use or restricted
-				conflictPorts = append(conflictPorts, pm.HostPort)
-			} else {
-				_ = listener.Close()
-			}
-		}
-	}
-
-	return conflictPorts
-}
-
-// mergePortMappings merges devcontainer.json ports with CLI ports
-// CLI ports take precedence on host port conflicts
-func mergePortMappings(devcontainerPorts []config.PortMapping, cliPorts []PortMapping) []PortMapping {
-	// Start with devcontainer.json ports as the base
-	result := make([]PortMapping, 0, len(devcontainerPorts)+len(cliPorts))
-
-	// Convert devcontainer ports to CLI PortMapping type
-	for _, port := range devcontainerPorts {
-		result = append(result, PortMapping{
-			HostPort:      port.HostPort,
-			ContainerPort: port.ContainerPort,
-		})
-	}
-
-	// Add CLI ports, overriding any devcontainer ports with same host port
-	for _, cliPort := range cliPorts {
-		conflictIndex := -1
-
-		// Check if CLI port conflicts with existing port by host port
-		for i, existingPort := range result {
-			if existingPort.HostPort == cliPort.HostPort {
-				conflictIndex = i
-				break
-			}
-		}
-
-		if conflictIndex >= 0 {
-			// Override the existing port mapping
-			result[conflictIndex] = cliPort
-		} else {
-			// Add the new port mapping
-			result = append(result, cliPort)
-		}
-	}
-
-	return result
-}
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
@@ -211,9 +101,7 @@ Examples:
   reactor down                             # Stop and remove current project container
 
 For more details, see the full documentation.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("down command not yet implemented - this will be added in Milestone 2")
-		},
+		RunE: downCmdHandler,
 	}
 }
 
@@ -490,89 +378,39 @@ func newVersionCmd() *cobra.Command {
 
 // Command handlers
 func upCmdHandler(cmd *cobra.Command, args []string) error {
-	// Check dependencies first
-	if err := config.CheckDependencies(); err != nil {
-		return err
-	}
-
 	// Get CLI flags
 	accountOverride, _ := cmd.Flags().GetString("account")
 	rebuild, _ := cmd.Flags().GetBool("rebuild")
 	discoveryMode, _ := cmd.Flags().GetBool("discovery-mode")
 	dockerHostIntegration, _ := cmd.Flags().GetBool("docker-host-integration")
 	portMappings, _ := cmd.Flags().GetStringSlice("port")
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
-	// Validate flag combinations
-	if discoveryMode {
-		if len(portMappings) > 0 {
-			return fmt.Errorf("--discovery-mode cannot be used with port forwarding")
-		}
-		if dockerHostIntegration {
-			return fmt.Errorf("--discovery-mode cannot be used with --docker-host-integration")
-		}
-	}
-
-	// Parse and validate CLI port mappings
-	cliPorts, err := parsePortMappings(portMappings)
+	// Get current working directory as project directory
+	projectDirectory, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("CLI port mapping error: %w", err)
+		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	// Load and validate configuration using new devcontainer.json workflow
-	configService := config.NewService()
-	resolved, err := configService.ResolveConfiguration()
+	// Build UpConfig for orchestrator
+	upConfig := orchestrator.UpConfig{
+		ProjectDirectory:      projectDirectory,
+		AccountOverride:       accountOverride,
+		ForceRebuild:          rebuild,
+		CLIPortMappings:       portMappings,
+		DiscoveryMode:         discoveryMode,
+		DockerHostIntegration: dockerHostIntegration,
+		Verbose:               verbose,
+	}
+
+	// Call orchestrator Up function
+	ctx := context.Background()
+	_, containerID, err := orchestrator.Up(ctx, upConfig)
 	if err != nil {
 		return err
 	}
 
-	// Apply account override if provided
-	if accountOverride != "" {
-		resolved.Account = accountOverride
-		// TODO: In future milestones, we might need to recalculate paths when account changes
-	}
-
-	// Merge devcontainer.json ports with CLI ports (CLI takes precedence on conflicts)
-	finalPorts := mergePortMappings(resolved.ForwardPorts, cliPorts)
-
-	// Check for port conflicts on final merged list
-	if len(finalPorts) > 0 {
-		conflictPorts := checkPortConflicts(finalPorts)
-		if len(conflictPorts) > 0 {
-			fmt.Printf("⚠️  WARNING: The following host ports may already be in use:\n")
-			for _, port := range conflictPorts {
-				fmt.Printf("   Port %d - containers may fail to start or port forwarding may not work\n", port)
-			}
-			fmt.Printf("   Consider using different host ports or stopping conflicting services.\n\n")
-		}
-	}
-
-	// Security warning for Docker host integration
-	if dockerHostIntegration {
-		fmt.Printf("⚠️  WARNING: Docker host integration enabled!\n")
-		fmt.Printf("   This gives the container full access to your host Docker daemon.\n")
-		fmt.Printf("   Only use this flag with trusted images and AI agents.\n")
-		fmt.Printf("   The container can create, modify, and delete other containers.\n\n")
-	}
-
-	// Display resolved configuration for debugging
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
-	if verbose {
-		fmt.Printf("Resolved configuration:\n")
-		fmt.Printf("  Provider: %s\n", resolved.Provider.Name)
-		fmt.Printf("  Account: %s\n", resolved.Account)
-		fmt.Printf("  Image: %s\n", resolved.Image)
-		fmt.Printf("  Danger: %t\n", resolved.Danger)
-		fmt.Printf("  Project: %s\n", resolved.ProjectRoot)
-		fmt.Printf("  Config Dir: %s\n", resolved.ProjectConfigDir)
-		if rebuild {
-			fmt.Printf("  Rebuild: enabled\n")
-		}
-	}
-
-	// Note: Directory validation removed - Docker will create mount directories as needed
-
-	// Initialize Docker service
-	ctx := context.Background()
+	// Initialize Docker service for session attachment
 	dockerService, err := docker.NewService()
 	if err != nil {
 		return fmt.Errorf("failed to initialize Docker service: %w", err)
@@ -583,127 +421,6 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Check Docker daemon health
-	if err := dockerService.CheckHealth(ctx); err != nil {
-		return fmt.Errorf("docker daemon not available: %w", err)
-	}
-
-	// Handle image building if build configuration is present
-	finalImageName := resolved.Image // Default to resolved image
-	if resolved.Build != nil {
-		// Build takes precedence over image
-		buildSpec, err := createBuildSpecFromConfig(resolved)
-		if err != nil {
-			return fmt.Errorf("failed to create build specification: %w", err)
-		}
-
-		// Check if we should force rebuild
-		forceRebuild := rebuild
-		if err := dockerService.BuildImage(ctx, buildSpec, forceRebuild); err != nil {
-			return fmt.Errorf("build failed: %w", err)
-		}
-
-		// Use the built image for container creation
-		finalImageName = buildSpec.ImageName
-		if verbose {
-			fmt.Printf("[INFO] Using built image: %s\n", finalImageName)
-		}
-	}
-
-	// Update resolved config to use final image name
-	resolved.Image = finalImageName
-
-	// Convert final merged port mappings to core format
-	corePortMappings := make([]core.PortMapping, len(finalPorts))
-	for i, pm := range finalPorts {
-		corePortMappings[i] = core.PortMapping{
-			HostPort:      pm.HostPort,
-			ContainerPort: pm.ContainerPort,
-		}
-	}
-
-	// Create container blueprint with internal mount construction
-	blueprint := core.NewContainerBlueprint(resolved, discoveryMode, dockerHostIntegration, corePortMappings)
-	containerSpec := blueprint.ToContainerSpec()
-
-	// Enhanced verbose output showing container naming and discovery
-	if verbose {
-		fmt.Printf("[INFO] Project: %s (%s)\n", filepath.Base(resolved.ProjectRoot), resolved.ProjectRoot)
-		fmt.Printf("[INFO] Container name: %s\n", containerSpec.Name)
-		if discoveryMode {
-			fmt.Printf("[INFO] Discovery mode: no mounts will be created\n")
-		}
-		if dockerHostIntegration {
-			fmt.Printf("[INFO] Docker host integration: Docker socket will be mounted\n")
-		}
-		if len(finalPorts) > 0 {
-			fmt.Printf("[INFO] Port forwarding: ")
-			for i, pm := range finalPorts {
-				if i > 0 {
-					fmt.Printf(", ")
-				}
-				fmt.Printf("%d->%d", pm.HostPort, pm.ContainerPort)
-			}
-			fmt.Printf("\n")
-		}
-	}
-
-	// Check for existing container first for enhanced verbose feedback
-	if verbose {
-		existingContainer, err := dockerService.ContainerExists(ctx, containerSpec.Name)
-		if err == nil {
-			switch existingContainer.Status {
-			case docker.StatusRunning:
-				fmt.Printf("[INFO] Found existing container: running\n")
-			case docker.StatusStopped:
-				fmt.Printf("[INFO] Found existing container: stopped (will be restarted)\n")
-			case docker.StatusNotFound:
-				fmt.Printf("[INFO] No existing container found (will create new one)\n")
-			}
-		}
-	}
-
-	// Provision container using recovery strategy (with cleanup for discovery mode)
-	var containerInfo docker.ContainerInfo
-	if discoveryMode {
-		// In discovery mode, check if we need to clean up existing container
-		existingContainer, checkErr := dockerService.ContainerExists(ctx, containerSpec.Name)
-		if checkErr == nil && existingContainer.Status != docker.StatusNotFound {
-			fmt.Printf("Discovery mode: removing existing container for clean environment\n")
-		}
-		containerInfo, err = dockerService.ProvisionContainerWithCleanup(ctx, containerSpec, true)
-	} else {
-		containerInfo, err = dockerService.ProvisionContainer(ctx, containerSpec)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to provision container: %w", err)
-	}
-
-	fmt.Printf("Container provisioned: %s\n", containerInfo.Name)
-	if verbose {
-		fmt.Printf("Container ID: %s\n", containerInfo.ID)
-		fmt.Printf("Status: %s\n", containerInfo.Status)
-	}
-
-	// Execute postCreateCommand if specified
-	if resolved.PostCreateCommand != nil {
-		if verbose {
-			fmt.Printf("[INFO] Executing postCreateCommand...\n")
-		} else {
-			fmt.Printf("Running postCreateCommand...\n")
-		}
-
-		if err := dockerService.ExecutePostCreateCommand(ctx, containerInfo.ID, resolved.PostCreateCommand); err != nil {
-			return fmt.Errorf("postCreateCommand execution failed: %w", err)
-		}
-
-		if verbose {
-			fmt.Printf("[INFO] postCreateCommand completed successfully\n")
-		} else {
-			fmt.Printf("postCreateCommand completed.\n")
-		}
-	}
-
 	// Attach to interactive session
 	if verbose {
 		fmt.Printf("[INFO] Attaching to container...\n")
@@ -711,15 +428,27 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Attaching to container session...\n")
 	}
 
-	if err := dockerService.AttachInteractiveSession(ctx, containerInfo.ID); err != nil {
+	if err := dockerService.AttachInteractiveSession(ctx, containerID); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}
 
 	// Inform user about container state after session ends
-	fmt.Printf("\nSession ended. Container '%s' is still running.\n", containerInfo.Name)
-	fmt.Printf("Use 'docker stop %s' to stop it.\n", containerInfo.Name)
+	fmt.Printf("\nSession ended. Container is still running.\n")
+	fmt.Printf("Use 'docker stop %s' to stop it.\n", containerID)
 
 	return nil
+}
+
+func downCmdHandler(cmd *cobra.Command, args []string) error {
+	// Get current working directory as project directory
+	projectDirectory, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Call orchestrator Down function
+	ctx := context.Background()
+	return orchestrator.Down(ctx, projectDirectory)
 }
 
 func diffCmdHandler(cmd *cobra.Command, args []string) error {
@@ -827,34 +556,37 @@ func buildCmdHandler(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("docker daemon not available: %w", err)
 	}
 
-	// Create BuildSpec from resolved configuration
-	buildSpec, err := createBuildSpecFromConfig(resolved)
+	// Create a minimal up config to build the image
+	// Get current working directory as project directory
+	projectDirectory, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to create build specification: %w", err)
+		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	// Force rebuild for explicit build command
-	if err := dockerService.BuildImage(ctx, buildSpec, true); err != nil {
-		return fmt.Errorf("build failed: %w", err)
+	// Create build spec from resolved configuration by calling orchestrator's function
+	// First change to project directory temporarily to ensure paths work correctly
+	originalWD, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	defer func() { _ = os.Chdir(originalWD) }()
+
+	if err := os.Chdir(projectDirectory); err != nil {
+		return fmt.Errorf("failed to change to project directory %s: %w", projectDirectory, err)
 	}
 
-	fmt.Printf("Build completed successfully.\n")
-	return nil
-}
-
-// createBuildSpecFromConfig creates a BuildSpec from ResolvedConfig
-func createBuildSpecFromConfig(resolved *config.ResolvedConfig) (docker.BuildSpec, error) {
+	// Create BuildSpec from resolved configuration using the same logic as orchestrator
 	if resolved.Build == nil {
-		return docker.BuildSpec{}, fmt.Errorf("build configuration is nil")
+		return fmt.Errorf("build configuration is nil")
 	}
 
 	// Find the devcontainer.json file to determine context base directory
 	configPath, found, err := config.FindDevContainerFile(resolved.ProjectRoot)
 	if err != nil {
-		return docker.BuildSpec{}, fmt.Errorf("failed to find devcontainer.json: %w", err)
+		return fmt.Errorf("failed to find devcontainer.json: %w", err)
 	}
 	if !found {
-		return docker.BuildSpec{}, fmt.Errorf("devcontainer.json not found")
+		return fmt.Errorf("devcontainer.json not found")
 	}
 
 	// Get directory containing devcontainer.json
@@ -885,11 +617,19 @@ func createBuildSpecFromConfig(resolved *config.ResolvedConfig) (docker.BuildSpe
 	// Create image name using project hash
 	imageName := fmt.Sprintf("reactor-build:%s", resolved.ProjectHash)
 
-	return docker.BuildSpec{
+	buildSpec := docker.BuildSpec{
 		Dockerfile: dockerfile,
 		Context:    contextPath,
 		ImageName:  imageName,
-	}, nil
+	}
+
+	// Force rebuild for explicit build command
+	if err := dockerService.BuildImage(ctx, buildSpec, true); err != nil {
+		return fmt.Errorf("build failed: %w", err)
+	}
+
+	fmt.Printf("Build completed successfully.\n")
+	return nil
 }
 
 func accountsListHandler(cmd *cobra.Command, args []string) error {
