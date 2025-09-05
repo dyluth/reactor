@@ -44,20 +44,20 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 	dockerMounts := []string{}
 	if !isDiscovery {
 		// 1. Add workspace mount first
-		dockerMounts = append(dockerMounts, fmt.Sprintf("%s:%s", resolved.ProjectRoot, "/workspace"))
+		dockerMounts = append(dockerMounts, formatDockerMount(resolved.ProjectRoot, "/workspace"))
 
 		// 2. Add provider credential mounts for ALL providers
 		for _, provider := range config.BuiltinProviders {
 			for _, mount := range provider.Mounts {
 				hostPath := filepath.Join(resolved.ProjectConfigDir, mount.Source)
-				dockerMounts = append(dockerMounts, fmt.Sprintf("%s:%s", hostPath, mount.Target))
+				dockerMounts = append(dockerMounts, formatDockerMount(hostPath, mount.Target))
 			}
 		}
 	}
 
 	// Add Docker socket mount if host integration is enabled
 	if dockerHostIntegration {
-		dockerMounts = append(dockerMounts, "/var/run/docker.sock:/var/run/docker.sock")
+		dockerMounts = append(dockerMounts, formatDockerMount("/var/run/docker.sock", "/var/run/docker.sock"))
 	}
 
 	// Set up environment variables
@@ -168,4 +168,21 @@ func sanitizeContainerName(name string) string {
 	}
 
 	return sanitized
+}
+
+// formatDockerMount creates a properly formatted Docker bind mount string
+// that handles paths with spaces and special characters
+func formatDockerMount(hostPath, containerPath string) string {
+	// Quote paths that contain spaces or other special characters
+	// Docker mount parsing handles quoted paths correctly
+	if needsQuoting(hostPath) || needsQuoting(containerPath) {
+		return fmt.Sprintf(`"%s:%s"`, hostPath, containerPath)
+	}
+	return fmt.Sprintf("%s:%s", hostPath, containerPath)
+}
+
+// needsQuoting checks if a path contains characters that require quoting
+func needsQuoting(path string) bool {
+	// Check for spaces and other characters that can cause parsing issues
+	return strings.ContainsAny(path, " \t\n\r\"'\\")
 }
