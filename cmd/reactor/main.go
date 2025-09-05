@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/dyluth/reactor/pkg/config"
 	"github.com/dyluth/reactor/pkg/core"
@@ -1383,10 +1385,10 @@ Use '--' to separate the service name from the command to execute.
 
 For more details, see the full documentation.`,
 		Args:                  cobra.MinimumNArgs(1),
-		RunE:                 workspaceExecHandler,
+		RunE:                  workspaceExecHandler,
 		DisableFlagsInUseLine: true,
 	}
-	
+
 	return cmd
 }
 
@@ -1545,20 +1547,11 @@ func workspaceExecHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if service exists
-	service, exists := ws.Services[serviceName]
-	if !exists {
+	if _, exists := ws.Services[serviceName]; !exists {
 		return fmt.Errorf("service '%s' not found in workspace", serviceName)
 	}
 
-	// Resolve service path for container name calculation
-	workspaceDir := filepath.Dir(workspacePath)
-	servicePath := service.Path
-	if !filepath.IsAbs(servicePath) {
-		servicePath = filepath.Join(workspaceDir, service.Path)
-	}
-	servicePath = filepath.Clean(servicePath)
-
-	// Generate workspace hash for container labeling 
+	// Generate workspace hash for container labeling
 	workspaceHash, err := workspace.GenerateWorkspaceHash(workspacePath)
 	if err != nil {
 		return fmt.Errorf("failed to generate workspace hash: %w", err)
@@ -1581,8 +1574,8 @@ func workspaceExecHandler(cmd *cobra.Command, args []string) error {
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.instance=%s", workspaceHash))
 	filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.service=%s", serviceName))
-	
-	containers, err := client.ContainerList(ctx, types.ContainerListOptions{
+
+	containers, err := client.ContainerList(ctx, container.ListOptions{
 		Filters: filterArgs,
 	})
 	if err != nil {
@@ -1792,18 +1785,18 @@ func checkWorkspaceNotRunning(workspaceHash string, servicesToStart []string) er
 	}
 	defer func() {
 		if err := dockerService.Close(); err != nil {
-			// Only log, don't fail the operation
+			log.Printf("Warning: failed to close Docker service: %v", err)
 		}
 	}()
 
 	client := dockerService.GetClient()
-	
+
 	// Find any running containers for this workspace
 	filterArgs := filters.NewArgs()
 	filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.instance=%s", workspaceHash))
 	filterArgs.Add("status", "running")
-	
-	runningContainers, err := client.ContainerList(ctx, types.ContainerListOptions{
+
+	runningContainers, err := client.ContainerList(ctx, container.ListOptions{
 		Filters: filterArgs,
 	})
 	if err != nil {
@@ -1817,7 +1810,7 @@ func checkWorkspaceNotRunning(workspaceHash string, servicesToStart []string) er
 	// Check which services are already running
 	var runningServices []string
 	var conflictingServices []string
-	
+
 	for _, container := range runningContainers {
 		if serviceName, exists := container.Labels["com.reactor.workspace.service"]; exists {
 			runningServices = append(runningServices, serviceName)
@@ -1834,7 +1827,7 @@ func checkWorkspaceNotRunning(workspaceHash string, servicesToStart []string) er
 		fmt.Printf("⚠️  Some services are already running: %v\n", conflictingServices)
 		fmt.Printf("   All running services in this workspace: %v\n", runningServices)
 		fmt.Printf("   Use 'reactor workspace exec <service> -- <command>' to run commands in existing containers\n")
-		fmt.Printf("   Or stop the workspace first with: docker stop %s\n", 
+		fmt.Printf("   Or stop the workspace first with: docker stop %s\n",
 			strings.Join(getContainerNames(runningContainers), " "))
 		return fmt.Errorf("workspace services already running")
 	}
