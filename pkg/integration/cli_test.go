@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
@@ -258,6 +259,21 @@ func TestContainerNaming(t *testing.T) {
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
+	// Clean up any leftover containers and temp directories from previous runs
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Logf("Warning: failed initial cleanup of test containers: %v", err)
+	}
+
+	// Clean up any leftover temp directories from previous test runs
+	tempDirPattern := filepath.Join(os.TempDir(), "*-project*")
+	if matches, err := filepath.Glob(tempDirPattern); err == nil {
+		for _, match := range matches {
+			if err := os.RemoveAll(match); err != nil {
+				t.Logf("Warning: failed to cleanup leftover temp directory %s: %v", match, err)
+			}
+		}
+	}
+
 	// Ensure Docker cleanup runs after test completion
 	t.Cleanup(func() {
 		if err := testutil.CleanupAllTestContainers(); err != nil {
@@ -395,6 +411,15 @@ func createTempDir(t *testing.T, name string) string {
 
 	// Use OS temp directory to avoid permission issues with Docker-created files
 	tempDir := filepath.Join(os.TempDir(), name+"-"+randomString(8))
+
+	// Clean up any existing directory with the same name
+	if _, err := os.Stat(tempDir); err == nil {
+		t.Logf("Warning: temp directory %s already exists, cleaning it up", tempDir)
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to remove existing temp directory %s: %v", tempDir, err)
+		}
+	}
+
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
@@ -405,9 +430,15 @@ func createTempDir(t *testing.T, name string) string {
 func randomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	result := make([]byte, length)
+
+	// Use crypto/rand for better randomness
 	for i := range result {
-		result[i] = charset[time.Now().UnixNano()%int64(len(charset))]
-		time.Sleep(time.Nanosecond) // Ensure different timestamps
+		// Simple fallback to time-based if crypto/rand fails
+		if n, err := rand.Read(result[i : i+1]); err != nil || n != 1 {
+			result[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+		} else {
+			result[i] = charset[result[i]%byte(len(charset))]
+		}
 	}
 	return string(result)
 }
