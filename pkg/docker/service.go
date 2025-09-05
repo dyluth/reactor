@@ -761,3 +761,86 @@ func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID stri
 	fmt.Println("postCreateCommand completed successfully")
 	return nil
 }
+
+// ExecuteInteractiveCommand runs a command interactively in the specified container
+func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID string, command []string) error {
+	if len(command) == 0 {
+		return fmt.Errorf("command array cannot be empty")
+	}
+
+	// Check if container is running
+	containerInfo, err := s.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect container %s: %w", containerID, err)
+	}
+
+	if !containerInfo.State.Running {
+		return fmt.Errorf("container %s is not running, cannot execute command", containerID)
+	}
+
+	// Create exec instance with interactive settings
+	execConfig := types.ExecConfig{
+		AttachStdout: true,
+		AttachStderr: true,
+		AttachStdin:  true,
+		Tty:          true,
+		Cmd:          command,
+	}
+
+	execResp, err := s.client.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create exec instance: %w", err)
+	}
+
+	// Attach to the exec instance for interactive I/O
+	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{
+		Tty: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to attach to exec instance: %w", err)
+	}
+	defer attachResp.Close()
+
+	// Start the exec instance
+	if err := s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{
+		Tty: true,
+	}); err != nil {
+		return fmt.Errorf("failed to start command execution: %w", err)
+	}
+
+	// Handle I/O streaming between terminal and container
+	// Copy container output to stdout/stderr
+	go func() {
+		_, _ = io.Copy(os.Stdout, attachResp.Reader)
+	}()
+
+	// Copy stdin to container
+	go func() {
+		_, _ = io.Copy(attachResp.Conn, os.Stdin)
+	}()
+
+	// Wait for the exec to complete
+	for {
+		inspectResp, err := s.client.ContainerExecInspect(ctx, execResp.ID)
+		if err != nil {
+			return fmt.Errorf("failed to inspect command execution: %w", err)
+		}
+
+		if !inspectResp.Running {
+			if inspectResp.ExitCode != 0 {
+				return fmt.Errorf("command failed with exit code %d", inspectResp.ExitCode)
+			}
+			break
+		}
+
+		// Small delay to avoid busy waiting
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return nil
+}
+
+// GetClient returns the underlying Docker client for direct API access
+func (s *Service) GetClient() DockerClient {
+	return s.client
+}

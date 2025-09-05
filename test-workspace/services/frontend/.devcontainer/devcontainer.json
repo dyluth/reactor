@@ -1,9 +1,11 @@
 {
   "name": "frontend-service",
-  "image": "node:18",
+  "image": "node:18-alpine",
+  "remoteUser": "node",
   "customizations": {
     "reactor": {
-      "account": "frontend-account"
+      "account": "frontend-account",
+      "defaultCommand": "sleep infinity"
     }
   }
 }

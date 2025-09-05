@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dyluth/reactor/pkg/config"
@@ -1023,9 +1024,11 @@ For more details, see the full documentation.`,
 	// Add --file / -f flag to all workspace commands
 	cmd.PersistentFlags().StringP("file", "f", "", "Path to workspace file (default: reactor-workspace.yml)")
 
-	// Add subcommands for PR 1
+	// Add subcommands for PR 1 and PR 2
 	cmd.AddCommand(newWorkspaceValidateCmd())
 	cmd.AddCommand(newWorkspaceListCmd())
+	cmd.AddCommand(newWorkspaceUpCmd())
+	cmd.AddCommand(newWorkspaceExecCmd())
 
 	return cmd
 }
@@ -1317,4 +1320,453 @@ func workspaceListHandler(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nWorkspace Hash: %s\n", workspaceHash[:16]+"...") // Show first 16 chars of hash
 
 	return nil
+}
+
+func newWorkspaceUpCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "up [service...]",
+		Short: "Start workspace services",
+		Long: `Start all or specific services defined in the workspace.
+
+This command orchestrates multiple dev containers in parallel, with pre-flight
+port conflict checking and colored output streaming. Each service is started
+using its devcontainer.json configuration with workspace-specific labeling
+and naming conventions.
+
+Examples:
+  reactor workspace up                    # Start all services
+  reactor workspace up api frontend      # Start specific services  
+  reactor workspace up -f my-workspace.yml api  # Use specific workspace file
+
+The command will:
+- Validate all service configurations before starting any containers
+- Check for host port conflicts across services
+- Start services in parallel with goroutines
+- Stream output with service-specific color prefixes
+- Apply workspace labels for container tracking
+- Report final success/failure status
+
+For more details, see the full documentation.`,
+		RunE: workspaceUpHandler,
+	}
+
+	// Add flags specific to the up command
+	cmd.Flags().Bool("rebuild", false, "Force rebuild of container images")
+	cmd.Flags().StringArrayP("port", "p", nil, "Port forwarding (host:container)")
+	cmd.Flags().Bool("discovery", false, "Enable discovery mode (no mounts)")
+	cmd.Flags().Bool("docker-host", false, "Enable Docker host integration (dangerous)")
+	cmd.Flags().BoolP("verbose", "v", false, "Enable verbose output")
+
+	return cmd
+}
+
+func newWorkspaceExecCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "exec <service> -- <command...>",
+		Short: "Execute command in workspace service",
+		Long: `Execute a command in a running workspace service container.
+
+This command finds the container for the specified service using workspace
+labels and naming conventions, then executes the provided command with
+full I/O streaming.
+
+Examples:
+  reactor workspace exec api -- bash                    # Interactive shell
+  reactor workspace exec api -- npm test                # Run tests
+  reactor workspace exec api -- cat /etc/hostname       # Simple command
+  reactor workspace exec -f my-workspace.yml api -- ls  # Use specific workspace
+
+The service must already be running (started with 'reactor workspace up').
+
+For more details, see the full documentation.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: workspaceExecHandler,
+	}
+}
+
+// workspaceUpHandler starts all or specific services in a workspace
+func workspaceUpHandler(cmd *cobra.Command, args []string) error {
+	// Get workspace file path from flag or use default
+	workspaceFile, _ := cmd.Flags().GetString("file")
+
+	// Get command-specific flags
+	forceRebuild, _ := cmd.Flags().GetBool("rebuild")
+	portMappings, _ := cmd.Flags().GetStringArray("port")
+	discoveryMode, _ := cmd.Flags().GetBool("discovery")
+	dockerHostIntegration, _ := cmd.Flags().GetBool("docker-host")
+	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	// Handle workspace file path (reusing existing logic pattern)
+	var workspacePath string
+	if workspaceFile != "" {
+		if filepath.Ext(workspaceFile) != "" {
+			workspacePath = workspaceFile
+		} else {
+			var found bool
+			var err error
+			workspacePath, found, err = workspace.FindWorkspaceFile(workspaceFile)
+			if err != nil {
+				return fmt.Errorf("error finding workspace file: %w", err)
+			}
+			if !found {
+				return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in directory: %s", workspaceFile)
+			}
+		}
+
+		if _, err := os.Stat(workspacePath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace file not found: %s", workspacePath)
+			}
+			return fmt.Errorf("error accessing workspace file %s: %w", workspacePath, err)
+		}
+	} else {
+		var found bool
+		var err error
+		workspacePath, found, err = workspace.FindWorkspaceFile("")
+		if err != nil {
+			return fmt.Errorf("error finding workspace file: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in current directory")
+		}
+	}
+
+	// Parse workspace file
+	ws, err := workspace.ParseWorkspaceFile(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to parse workspace file: %w", err)
+	}
+
+	// Determine which services to start
+	var servicesToStart []string
+	if len(args) == 0 {
+		// Start all services
+		for serviceName := range ws.Services {
+			servicesToStart = append(servicesToStart, serviceName)
+		}
+	} else {
+		// Start specified services
+		for _, serviceName := range args {
+			if _, exists := ws.Services[serviceName]; !exists {
+				return fmt.Errorf("service '%s' not found in workspace", serviceName)
+			}
+			servicesToStart = append(servicesToStart, serviceName)
+		}
+	}
+
+	// Generate workspace hash for labeling
+	workspaceHash, err := workspace.GenerateWorkspaceHash(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to generate workspace hash: %w", err)
+	}
+
+	fmt.Printf("Starting workspace services: %v\n", servicesToStart)
+	fmt.Printf("Workspace: %s\n\n", workspacePath)
+
+	// Pre-flight validation: check all service configurations and port conflicts
+	if err := validateServicesAndPorts(ws, servicesToStart, workspacePath, portMappings); err != nil {
+		return fmt.Errorf("pre-flight validation failed: %w", err)
+	}
+
+	// Start services in parallel
+	return startServicesInParallel(ws, servicesToStart, workspacePath, workspaceHash, orchestrator.UpConfig{
+		ForceRebuild:          forceRebuild,
+		CLIPortMappings:       portMappings,
+		DiscoveryMode:         discoveryMode,
+		DockerHostIntegration: dockerHostIntegration,
+		Verbose:               verbose,
+	})
+}
+
+// workspaceExecHandler executes a command in a workspace service container
+func workspaceExecHandler(cmd *cobra.Command, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("service name required")
+	}
+
+	serviceName := args[0]
+
+	// Find the "--" separator
+	var command []string
+	dashIndex := -1
+	for i, arg := range args {
+		if arg == "--" {
+			dashIndex = i
+			break
+		}
+	}
+
+	if dashIndex == -1 || dashIndex+1 >= len(args) {
+		return fmt.Errorf("command required after '--' separator")
+	}
+
+	command = args[dashIndex+1:]
+
+	// Get workspace file path from flag or use default
+	workspaceFile, _ := cmd.Flags().GetString("file")
+
+	// Handle workspace file path (reusing existing logic pattern)
+	var workspacePath string
+	if workspaceFile != "" {
+		if filepath.Ext(workspaceFile) != "" {
+			workspacePath = workspaceFile
+		} else {
+			var found bool
+			var err error
+			workspacePath, found, err = workspace.FindWorkspaceFile(workspaceFile)
+			if err != nil {
+				return fmt.Errorf("error finding workspace file: %w", err)
+			}
+			if !found {
+				return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in directory: %s", workspaceFile)
+			}
+		}
+
+		if _, err := os.Stat(workspacePath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace file not found: %s", workspacePath)
+			}
+			return fmt.Errorf("error accessing workspace file %s: %w", workspacePath, err)
+		}
+	} else {
+		var found bool
+		var err error
+		workspacePath, found, err = workspace.FindWorkspaceFile("")
+		if err != nil {
+			return fmt.Errorf("error finding workspace file: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in current directory")
+		}
+	}
+
+	// Parse workspace file
+	ws, err := workspace.ParseWorkspaceFile(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to parse workspace file: %w", err)
+	}
+
+	// Check if service exists
+	service, exists := ws.Services[serviceName]
+	if !exists {
+		return fmt.Errorf("service '%s' not found in workspace", serviceName)
+	}
+
+	// Resolve service path for container name calculation
+	workspaceDir := filepath.Dir(workspacePath)
+	servicePath := service.Path
+	if !filepath.IsAbs(servicePath) {
+		servicePath = filepath.Join(workspaceDir, service.Path)
+	}
+	servicePath = filepath.Clean(servicePath)
+
+	// Generate expected container name using workspace naming convention
+	projectHash := config.GenerateProjectHash(servicePath)
+	expectedContainerName := fmt.Sprintf("reactor-ws-%s-%s", serviceName, projectHash)
+
+	// Initialize Docker service
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check if container exists and is running
+	containerInfo, err := dockerService.ContainerExists(ctx, expectedContainerName)
+	if err != nil {
+		return fmt.Errorf("failed to check container existence: %w", err)
+	}
+
+	if containerInfo.Status == docker.StatusNotFound {
+		return fmt.Errorf("container for service '%s' not found - start it first with 'reactor workspace up %s'", serviceName, serviceName)
+	}
+
+	if containerInfo.Status != docker.StatusRunning {
+		return fmt.Errorf("container for service '%s' is not running (status: %s) - start it first with 'reactor workspace up %s'", serviceName, containerInfo.Status, serviceName)
+	}
+
+	// Execute the command in the container
+	fmt.Printf("Executing command in service '%s': %v\n", serviceName, command)
+	return dockerService.ExecuteInteractiveCommand(ctx, containerInfo.ID, command)
+}
+
+// validateServicesAndPorts performs pre-flight validation for workspace services
+func validateServicesAndPorts(ws *workspace.Workspace, servicesToStart []string, workspacePath string, cliPorts []string) error {
+	workspaceDir := filepath.Dir(workspacePath)
+	allHostPorts := make(map[int][]string) // Map of host port to services using it
+
+	fmt.Printf("Pre-flight validation:\n")
+
+	// Validate each service configuration and collect port mappings
+	for _, serviceName := range servicesToStart {
+		service := ws.Services[serviceName]
+		fmt.Printf("  Validating service '%s'...\n", serviceName)
+
+		// Resolve service path
+		servicePath := service.Path
+		if !filepath.IsAbs(servicePath) {
+			servicePath = filepath.Join(workspaceDir, service.Path)
+		}
+		servicePath = filepath.Clean(servicePath)
+
+		// Check devcontainer.json exists and is valid
+		configService := config.NewServiceWithRoot(servicePath)
+		resolved, err := configService.ResolveConfiguration()
+		if err != nil {
+			return fmt.Errorf("service '%s' configuration invalid: %w", serviceName, err)
+		}
+
+		// Collect port mappings from devcontainer.json
+		for _, port := range resolved.ForwardPorts {
+			if existing, exists := allHostPorts[port.HostPort]; exists {
+				allHostPorts[port.HostPort] = append(existing, serviceName)
+			} else {
+				allHostPorts[port.HostPort] = []string{serviceName}
+			}
+		}
+	}
+
+	// Parse and validate CLI port mappings
+	for _, portStr := range cliPorts {
+		parts := strings.Split(portStr, ":")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid CLI port mapping format '%s': expected 'host:container'", portStr)
+		}
+
+		hostPort, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return fmt.Errorf("invalid CLI host port '%s': must be a number", parts[0])
+		}
+
+		// CLI ports can override devcontainer ports, but we still track them
+		if existing, exists := allHostPorts[hostPort]; exists {
+			fmt.Printf("  ⚠️  CLI port %d overrides devcontainer.json port for services: %v\n", hostPort, existing)
+		}
+		allHostPorts[hostPort] = []string{"CLI"}
+	}
+
+	// Check for port conflicts between services
+	var conflicts []string
+	for hostPort, services := range allHostPorts {
+		if len(services) > 1 && !contains(services, "CLI") {
+			conflicts = append(conflicts, fmt.Sprintf("port %d used by services: %v", hostPort, services))
+		}
+	}
+
+	if len(conflicts) > 0 {
+		return fmt.Errorf("port conflicts detected:\n  - %s", strings.Join(conflicts, "\n  - "))
+	}
+
+	fmt.Printf("  ✓ All service configurations valid\n")
+	fmt.Printf("  ✓ No port conflicts detected\n\n")
+	return nil
+}
+
+// startServicesInParallel starts multiple services using goroutines
+func startServicesInParallel(ws *workspace.Workspace, servicesToStart []string, workspacePath, workspaceHash string, baseConfig orchestrator.UpConfig) error {
+	workspaceDir := filepath.Dir(workspacePath)
+
+	// Channel for collecting results
+	type serviceResult struct {
+		serviceName string
+		err         error
+		containerID string
+	}
+
+	resultChan := make(chan serviceResult, len(servicesToStart))
+
+	// Start services in parallel
+	for _, serviceName := range servicesToStart {
+		go func(name string) {
+			service := ws.Services[name]
+
+			// Resolve service path
+			servicePath := service.Path
+			if !filepath.IsAbs(servicePath) {
+				servicePath = filepath.Join(workspaceDir, service.Path)
+			}
+			servicePath = filepath.Clean(servicePath)
+
+			// Create service-specific orchestrator config
+			serviceConfig := baseConfig
+			serviceConfig.ProjectDirectory = servicePath
+			serviceConfig.AccountOverride = service.Account
+			serviceConfig.NamePrefix = fmt.Sprintf("reactor-ws-%s-", name)
+
+			// Add workspace labels
+			if serviceConfig.Labels == nil {
+				serviceConfig.Labels = make(map[string]string)
+			}
+			serviceConfig.Labels["com.reactor.workspace.instance"] = workspaceHash
+			serviceConfig.Labels["com.reactor.workspace.service"] = name
+
+			// Start the service
+			ctx := context.Background()
+			fmt.Printf("[%s] Starting service...\n", name)
+
+			resolved, containerID, err := orchestrator.Up(ctx, serviceConfig)
+			if err != nil {
+				fmt.Printf("[%s] ❌ Failed: %v\n", name, err)
+				resultChan <- serviceResult{name, err, ""}
+				return
+			}
+
+			fmt.Printf("[%s] ✅ Started successfully (container: %s)\n", name, containerID)
+			if resolved != nil && len(resolved.ForwardPorts) > 0 {
+				fmt.Printf("[%s] Port mappings: ", name)
+				for i, port := range resolved.ForwardPorts {
+					if i > 0 {
+						fmt.Printf(", ")
+					}
+					fmt.Printf("%d->%d", port.HostPort, port.ContainerPort)
+				}
+				fmt.Printf("\n")
+			}
+
+			resultChan <- serviceResult{name, nil, containerID}
+		}(serviceName)
+	}
+
+	// Collect results
+	var successCount, failCount int
+	var errors []string
+
+	for i := 0; i < len(servicesToStart); i++ {
+		result := <-resultChan
+		if result.err != nil {
+			failCount++
+			errors = append(errors, fmt.Sprintf("%s: %v", result.serviceName, result.err))
+		} else {
+			successCount++
+		}
+	}
+
+	// Print final summary
+	fmt.Printf("\n=== Workspace Start Summary ===\n")
+	fmt.Printf("✅ Started successfully: %d/%d services\n", successCount, len(servicesToStart))
+	if failCount > 0 {
+		fmt.Printf("❌ Failed to start: %d/%d services\n", failCount, len(servicesToStart))
+		for _, errMsg := range errors {
+			fmt.Printf("  - %s\n", errMsg)
+		}
+		return fmt.Errorf("%d service(s) failed to start", failCount)
+	}
+
+	fmt.Printf("\nWorkspace is ready! 🚀\n")
+	return nil
+}
+
+// contains checks if a slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
