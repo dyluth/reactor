@@ -12,6 +12,7 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tailscale/hujson v0.0.0-20250605163823-992244df8c5a
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -40,6 +41,5 @@ require (
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )

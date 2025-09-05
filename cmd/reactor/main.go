@@ -11,6 +11,7 @@ import (
 	"github.com/dyluth/reactor/pkg/core"
 	"github.com/dyluth/reactor/pkg/docker"
 	"github.com/dyluth/reactor/pkg/orchestrator"
+	"github.com/dyluth/reactor/pkg/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -53,6 +54,7 @@ lifecycle while keeping your host machine clean.`,
 	cmd.AddCommand(newDiffCmd())
 	cmd.AddCommand(newAccountsCmd())
 	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newWorkspaceCmd())
 	cmd.AddCommand(newCompletionCmd())
 	cmd.AddCommand(newVersionCmd())
 
@@ -996,5 +998,323 @@ func sessionsCleanHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\nSuccessfully cleaned up %d of %d reactor containers.\n", removedCount, len(containers))
+	return nil
+}
+
+func newWorkspaceCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "workspace",
+		Short: "Manage multi-container workspaces",
+		Long: `Manage collections of related dev container services as a single workspace.
+
+The workspace commands allow you to orchestrate multiple dev containers defined
+in a reactor-workspace.yml file. This is ideal for microservice development
+where you need to run multiple services simultaneously.
+
+Examples:
+  reactor workspace validate           # Validate workspace configuration
+  reactor workspace list             # List services and their status
+  reactor workspace up               # Start all services (future milestone)
+  reactor workspace down             # Stop all services (future milestone)
+
+For more details, see the full documentation.`,
+	}
+
+	// Add --file / -f flag to all workspace commands
+	cmd.PersistentFlags().StringP("file", "f", "", "Path to workspace file (default: reactor-workspace.yml)")
+
+	// Add subcommands for PR 1
+	cmd.AddCommand(newWorkspaceValidateCmd())
+	cmd.AddCommand(newWorkspaceListCmd())
+
+	return cmd
+}
+
+func newWorkspaceValidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate",
+		Short: "Validate workspace configuration",
+		Long: `Validate the reactor-workspace.yml file and all service configurations.
+
+This command parses the workspace file and validates:
+- Workspace file syntax and version
+- Service path existence and accessibility  
+- Each service's devcontainer.json file validity
+- Path traversal security checks
+
+Examples:
+  reactor workspace validate                    # Validate default workspace file
+  reactor workspace validate -f my-workspace.yml  # Validate specific file
+
+For more details, see the full documentation.`,
+		RunE: workspaceValidateHandler,
+	}
+}
+
+func newWorkspaceListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List workspace services and their status",
+		Long: `List all services defined in the workspace with their container status.
+
+Shows each service name, path, account, and current container status (running,
+stopped, or not found). This gives you a complete overview of your workspace
+state at a glance.
+
+Examples:
+  reactor workspace list                       # List services in default workspace
+  reactor workspace list -f my-workspace.yml  # List services in specific workspace
+
+For more details, see the full documentation.`,
+		RunE: workspaceListHandler,
+	}
+}
+
+// workspaceValidateHandler validates a workspace file and all its services
+func workspaceValidateHandler(cmd *cobra.Command, args []string) error {
+	// Get workspace file path from flag or use default
+	workspaceFile, _ := cmd.Flags().GetString("file")
+
+	// Handle workspace file path
+	var workspacePath string
+	if workspaceFile != "" {
+		// User specified a specific file path
+		if filepath.Ext(workspaceFile) != "" {
+			// It's a file path, use it directly
+			workspacePath = workspaceFile
+		} else {
+			// It's a directory, find workspace file in it
+			var found bool
+			var err error
+			workspacePath, found, err = workspace.FindWorkspaceFile(workspaceFile)
+			if err != nil {
+				return fmt.Errorf("error finding workspace file: %w", err)
+			}
+			if !found {
+				return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in directory: %s", workspaceFile)
+			}
+		}
+
+		// Check if the specified file exists
+		if _, err := os.Stat(workspacePath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace file not found: %s", workspacePath)
+			}
+			return fmt.Errorf("error accessing workspace file %s: %w", workspacePath, err)
+		}
+	} else {
+		// No file specified, find default workspace file in current directory
+		var found bool
+		var err error
+		workspacePath, found, err = workspace.FindWorkspaceFile("")
+		if err != nil {
+			return fmt.Errorf("error finding workspace file: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in current directory")
+		}
+	}
+
+	// Parse and validate workspace file
+	ws, err := workspace.ParseWorkspaceFile(workspacePath)
+	if err != nil {
+		return fmt.Errorf("workspace validation failed: %w", err)
+	}
+
+	fmt.Printf("✓ Workspace file valid: %s\n", workspacePath)
+	fmt.Printf("  Version: %s\n", ws.Version)
+	fmt.Printf("  Services: %d\n\n", len(ws.Services))
+
+	// Validate each service's devcontainer.json
+	validServices := 0
+	for serviceName, service := range ws.Services {
+		fmt.Printf("Validating service '%s':\n", serviceName)
+		fmt.Printf("  Path: %s\n", service.Path)
+		if service.Account != "" {
+			fmt.Printf("  Account: %s\n", service.Account)
+		}
+
+		// Resolve service path relative to workspace file
+		workspaceDir := filepath.Dir(workspacePath)
+		servicePath := service.Path
+		if !filepath.IsAbs(servicePath) {
+			servicePath = filepath.Join(workspaceDir, service.Path)
+		}
+		servicePath = filepath.Clean(servicePath)
+
+		// Check for devcontainer.json in service directory
+		devcontainerPath, found, err := config.FindDevContainerFile(servicePath)
+		if err != nil {
+			fmt.Printf("  ✗ Error checking devcontainer.json: %v\n\n", err)
+			continue
+		}
+		if !found {
+			fmt.Printf("  ✗ No devcontainer.json found\n\n")
+			continue
+		}
+
+		// Try to parse the devcontainer.json to validate it
+		configService := config.NewServiceWithRoot(servicePath)
+		_, err = configService.ResolveConfiguration()
+		if err != nil {
+			fmt.Printf("  ✗ Invalid devcontainer.json: %v\n\n", err)
+			continue
+		}
+
+		fmt.Printf("  ✓ devcontainer.json: %s\n\n", devcontainerPath)
+		validServices++
+	}
+
+	// Summary
+	totalServices := len(ws.Services)
+	if validServices == totalServices {
+		fmt.Printf("✓ All %d services validated successfully\n", totalServices)
+	} else {
+		fmt.Printf("✗ %d of %d services validated successfully\n", validServices, totalServices)
+		return fmt.Errorf("workspace validation failed: %d service(s) have configuration errors", totalServices-validServices)
+	}
+
+	return nil
+}
+
+// workspaceListHandler lists services and their container status
+func workspaceListHandler(cmd *cobra.Command, args []string) error {
+	// Get workspace file path from flag or use default
+	workspaceFile, _ := cmd.Flags().GetString("file")
+
+	// Handle workspace file path
+	var workspacePath string
+	if workspaceFile != "" {
+		// User specified a specific file path
+		if filepath.Ext(workspaceFile) != "" {
+			// It's a file path, use it directly
+			workspacePath = workspaceFile
+		} else {
+			// It's a directory, find workspace file in it
+			var found bool
+			var err error
+			workspacePath, found, err = workspace.FindWorkspaceFile(workspaceFile)
+			if err != nil {
+				return fmt.Errorf("error finding workspace file: %w", err)
+			}
+			if !found {
+				return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in directory: %s", workspaceFile)
+			}
+		}
+
+		// Check if the specified file exists
+		if _, err := os.Stat(workspacePath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace file not found: %s", workspacePath)
+			}
+			return fmt.Errorf("error accessing workspace file %s: %w", workspacePath, err)
+		}
+	} else {
+		// No file specified, find default workspace file in current directory
+		var found bool
+		var err error
+		workspacePath, found, err = workspace.FindWorkspaceFile("")
+		if err != nil {
+			return fmt.Errorf("error finding workspace file: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in current directory")
+		}
+	}
+
+	// Parse workspace file
+	ws, err := workspace.ParseWorkspaceFile(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to parse workspace file: %w", err)
+	}
+
+	// Initialize Docker service to check container status
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close Docker service: %v\n", err)
+		}
+	}()
+
+	// Check Docker daemon health
+	if err := dockerService.CheckHealth(ctx); err != nil {
+		return fmt.Errorf("docker daemon not available: %w", err)
+	}
+
+	// Generate workspace hash for container labeling
+	workspaceHash, err := workspace.GenerateWorkspaceHash(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to generate workspace hash: %w", err)
+	}
+
+	fmt.Printf("Workspace: %s\n", workspacePath)
+	fmt.Printf("Services: %d\n\n", len(ws.Services))
+
+	// Display header
+	fmt.Printf("%-15s %-30s %-15s %-10s\n", "SERVICE", "PATH", "ACCOUNT", "STATUS")
+	fmt.Printf("%-15s %-30s %-15s %-10s\n",
+		strings.Repeat("-", 15),
+		strings.Repeat("-", 30),
+		strings.Repeat("-", 15),
+		strings.Repeat("-", 10))
+
+	// Check status for each service
+	for serviceName, service := range ws.Services {
+		// Resolve service path for project hash calculation
+		workspaceDir := filepath.Dir(workspacePath)
+		servicePath := service.Path
+		if !filepath.IsAbs(servicePath) {
+			servicePath = filepath.Join(workspaceDir, service.Path)
+		}
+		servicePath = filepath.Clean(servicePath)
+
+		// Generate expected container name using workspace naming convention
+		projectHash := config.GenerateProjectHash(servicePath)
+		expectedContainerName := fmt.Sprintf("reactor-ws-%s-%s", serviceName, projectHash)
+
+		// Check container status
+		containerInfo, err := dockerService.ContainerExists(ctx, expectedContainerName)
+		status := "not found"
+		if err == nil {
+			switch containerInfo.Status {
+			case docker.StatusRunning:
+				status = "running"
+			case docker.StatusStopped:
+				status = "stopped"
+			case docker.StatusNotFound:
+				status = "not found"
+			}
+		}
+
+		// Truncate path if too long for display
+		displayPath := service.Path
+		if len(displayPath) > 30 {
+			displayPath = displayPath[:27] + "..."
+		}
+
+		// Get account (from service override or devcontainer.json)
+		account := service.Account
+		if account == "" {
+			// Try to read account from service's devcontainer.json
+			configService := config.NewServiceWithRoot(servicePath)
+			if resolved, err := configService.ResolveConfiguration(); err == nil {
+				account = resolved.Account
+			} else {
+				account = "-"
+			}
+		}
+		if len(account) > 15 {
+			account = account[:12] + "..."
+		}
+
+		fmt.Printf("%-15s %-30s %-15s %-10s\n", serviceName, displayPath, account, status)
+	}
+
+	fmt.Printf("\nWorkspace Hash: %s\n", workspaceHash[:16]+"...") // Show first 16 chars of hash
+
 	return nil
 }

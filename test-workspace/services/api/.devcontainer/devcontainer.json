@@ -1,0 +1,9 @@
+{
+  "name": "api-service",
+  "image": "node:18",
+  "customizations": {
+    "reactor": {
+      "account": "default-account"
+    }
+  }
+}

@@ -25,6 +25,13 @@ func NewService() *Service {
 	}
 }
 
+// NewServiceWithRoot creates a new configuration service with a specific project root
+func NewServiceWithRoot(projectRoot string) *Service {
+	return &Service{
+		projectRoot: projectRoot,
+	}
+}
+
 // ResolveConfiguration loads and resolves configuration using the new devcontainer.json workflow
 func (s *Service) ResolveConfiguration() (*ResolvedConfig, error) {
 	// 1. Find devcontainer.json

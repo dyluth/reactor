@@ -1,0 +1,7 @@
+version: "1"
+services:
+  api:
+    path: ./services/api
+    account: work-account
+  frontend:
+    path: ./services/frontend

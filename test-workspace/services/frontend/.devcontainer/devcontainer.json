@@ -1,0 +1,9 @@
+{
+  "name": "frontend-service",
+  "image": "node:18",
+  "customizations": {
+    "reactor": {
+      "account": "frontend-account"
+    }
+  }
+}
