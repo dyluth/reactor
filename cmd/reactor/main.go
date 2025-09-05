@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/dyluth/reactor/pkg/config"
 	"github.com/dyluth/reactor/pkg/core"
 	"github.com/dyluth/reactor/pkg/docker"
@@ -1361,7 +1363,7 @@ For more details, see the full documentation.`,
 }
 
 func newWorkspaceExecCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "exec <service> -- <command...>",
 		Short: "Execute command in workspace service",
 		Long: `Execute a command in a running workspace service container.
@@ -1371,17 +1373,21 @@ labels and naming conventions, then executes the provided command with
 full I/O streaming.
 
 Examples:
-  reactor workspace exec api -- bash                    # Interactive shell
-  reactor workspace exec api -- npm test                # Run tests
-  reactor workspace exec api -- cat /etc/hostname       # Simple command
-  reactor workspace exec -f my-workspace.yml api -- ls  # Use specific workspace
+  reactor workspace exec api -- bash                   # Interactive shell
+  reactor workspace exec api -- npm test               # Run tests  
+  reactor workspace exec api -- ls -la /home           # Command with flags
+  reactor workspace exec -f my-workspace.yml api -- ls # Use specific workspace
 
 The service must already be running (started with 'reactor workspace up').
+Use '--' to separate the service name from the command to execute.
 
 For more details, see the full documentation.`,
-		Args: cobra.MinimumNArgs(1),
-		RunE: workspaceExecHandler,
+		Args:                  cobra.MinimumNArgs(1),
+		RunE:                 workspaceExecHandler,
+		DisableFlagsInUseLine: true,
 	}
+	
+	return cmd
 }
 
 // workspaceUpHandler starts all or specific services in a workspace
@@ -1461,7 +1467,14 @@ func workspaceUpHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Starting workspace services: %v\n", servicesToStart)
-	fmt.Printf("Workspace: %s\n\n", workspacePath)
+	fmt.Printf("Workspace: %s\n", workspacePath)
+
+	// Check if workspace is already running
+	if err := checkWorkspaceNotRunning(workspaceHash, servicesToStart); err != nil {
+		return err
+	}
+
+	fmt.Println()
 
 	// Pre-flight validation: check all service configurations and port conflicts
 	if err := validateServicesAndPorts(ws, servicesToStart, workspacePath, portMappings); err != nil {
@@ -1480,27 +1493,12 @@ func workspaceUpHandler(cmd *cobra.Command, args []string) error {
 
 // workspaceExecHandler executes a command in a workspace service container
 func workspaceExecHandler(cmd *cobra.Command, args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("service name required")
+	if len(args) < 2 {
+		return fmt.Errorf("service name and command required (use: reactor workspace exec <service> -- <command>)")
 	}
 
 	serviceName := args[0]
-
-	// Find the "--" separator
-	var command []string
-	dashIndex := -1
-	for i, arg := range args {
-		if arg == "--" {
-			dashIndex = i
-			break
-		}
-	}
-
-	if dashIndex == -1 || dashIndex+1 >= len(args) {
-		return fmt.Errorf("command required after '--' separator")
-	}
-
-	command = args[dashIndex+1:]
+	command := args[1:]
 
 	// Get workspace file path from flag or use default
 	workspaceFile, _ := cmd.Flags().GetString("file")
@@ -1560,9 +1558,11 @@ func workspaceExecHandler(cmd *cobra.Command, args []string) error {
 	}
 	servicePath = filepath.Clean(servicePath)
 
-	// Generate expected container name using workspace naming convention
-	projectHash := config.GenerateProjectHash(servicePath)
-	expectedContainerName := fmt.Sprintf("reactor-ws-%s-%s", serviceName, projectHash)
+	// Generate workspace hash for container labeling 
+	workspaceHash, err := workspace.GenerateWorkspaceHash(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to generate workspace hash: %w", err)
+	}
 
 	// Initialize Docker service
 	ctx := context.Background()
@@ -1576,23 +1576,35 @@ func workspaceExecHandler(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Check if container exists and is running
-	containerInfo, err := dockerService.ContainerExists(ctx, expectedContainerName)
+	// Find container using workspace labels instead of reconstructing name
+	client := dockerService.GetClient()
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.instance=%s", workspaceHash))
+	filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.service=%s", serviceName))
+	
+	containers, err := client.ContainerList(ctx, types.ContainerListOptions{
+		Filters: filterArgs,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to check container existence: %w", err)
+		return fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	if containerInfo.Status == docker.StatusNotFound {
+	if len(containers) == 0 {
 		return fmt.Errorf("container for service '%s' not found - start it first with 'reactor workspace up %s'", serviceName, serviceName)
 	}
 
-	if containerInfo.Status != docker.StatusRunning {
-		return fmt.Errorf("container for service '%s' is not running (status: %s) - start it first with 'reactor workspace up %s'", serviceName, containerInfo.Status, serviceName)
+	if len(containers) > 1 {
+		return fmt.Errorf("multiple containers found for service '%s' - this shouldn't happen", serviceName)
+	}
+
+	container := containers[0]
+	if container.State != "running" {
+		return fmt.Errorf("container for service '%s' is not running (status: %s) - start it first with 'reactor workspace up %s'", serviceName, container.State, serviceName)
 	}
 
 	// Execute the command in the container
 	fmt.Printf("Executing command in service '%s': %v\n", serviceName, command)
-	return dockerService.ExecuteInteractiveCommand(ctx, containerInfo.ID, command)
+	return dockerService.ExecuteInteractiveCommand(ctx, container.ID, command)
 }
 
 // validateServicesAndPorts performs pre-flight validation for workspace services
@@ -1769,4 +1781,82 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// checkWorkspaceNotRunning checks if any of the services are already running
+func checkWorkspaceNotRunning(workspaceHash string, servicesToStart []string) error {
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			// Only log, don't fail the operation
+		}
+	}()
+
+	client := dockerService.GetClient()
+	
+	// Find any running containers for this workspace
+	filterArgs := filters.NewArgs()
+	filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.instance=%s", workspaceHash))
+	filterArgs.Add("status", "running")
+	
+	runningContainers, err := client.ContainerList(ctx, types.ContainerListOptions{
+		Filters: filterArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check existing containers: %w", err)
+	}
+
+	if len(runningContainers) == 0 {
+		return nil // No running containers, safe to start
+	}
+
+	// Check which services are already running
+	var runningServices []string
+	var conflictingServices []string
+	
+	for _, container := range runningContainers {
+		if serviceName, exists := container.Labels["com.reactor.workspace.service"]; exists {
+			runningServices = append(runningServices, serviceName)
+			// Check if we're trying to start a service that's already running
+			for _, serviceToStart := range servicesToStart {
+				if serviceName == serviceToStart {
+					conflictingServices = append(conflictingServices, serviceName)
+				}
+			}
+		}
+	}
+
+	if len(conflictingServices) > 0 {
+		fmt.Printf("⚠️  Some services are already running: %v\n", conflictingServices)
+		fmt.Printf("   All running services in this workspace: %v\n", runningServices)
+		fmt.Printf("   Use 'reactor workspace exec <service> -- <command>' to run commands in existing containers\n")
+		fmt.Printf("   Or stop the workspace first with: docker stop %s\n", 
+			strings.Join(getContainerNames(runningContainers), " "))
+		return fmt.Errorf("workspace services already running")
+	}
+
+	// Some services are running but not conflicting - just inform the user
+	if len(runningServices) > 0 {
+		fmt.Printf("ℹ️  Other services already running in this workspace: %v\n", runningServices)
+	}
+
+	return nil
+}
+
+// getContainerNames extracts container names from a list of containers
+func getContainerNames(containers []types.Container) []string {
+	var names []string
+	for _, container := range containers {
+		// Container names have a leading slash, remove it
+		name := container.Names[0]
+		if len(name) > 0 && name[0] == '/' {
+			name = name[1:]
+		}
+		names = append(names, name)
+	}
+	return names
 }
