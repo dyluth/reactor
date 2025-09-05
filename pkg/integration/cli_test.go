@@ -282,6 +282,11 @@ func TestContainerNaming(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run("naming_"+tc.dirName, func(t *testing.T) {
 			tempDir := createTempDir(t, tc.dirName)
+			t.Cleanup(func() {
+				if err := os.RemoveAll(tempDir); err != nil {
+					t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+				}
+			})
 
 			isolationPrefix := "test-naming-" + randomString(8)
 			env := []string{"REACTOR_ISOLATION_PREFIX=" + isolationPrefix}
@@ -290,9 +295,9 @@ func TestContainerNaming(t *testing.T) {
 			cmd := exec.Command(reactorBinary, "config", "init")
 			cmd.Dir = tempDir
 			cmd.Env = append(os.Environ(), env...)
-			_, err := cmd.CombinedOutput()
+			output, err := cmd.CombinedOutput()
 			if err != nil {
-				t.Fatalf("config init failed: %v", err)
+				t.Fatalf("config init failed: %v\nOutput: %s", err, string(output))
 			}
 
 			// Get the config show output to see what container name would be generated
@@ -300,7 +305,7 @@ func TestContainerNaming(t *testing.T) {
 			cmd.Dir = tempDir
 			cmd.Env = append(os.Environ(), env...)
 
-			output, err := cmd.CombinedOutput()
+			output, err = cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("config show failed: %v", err)
 			}
