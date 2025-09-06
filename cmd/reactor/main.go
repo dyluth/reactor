@@ -1019,8 +1019,8 @@ where you need to run multiple services simultaneously.
 Examples:
   reactor workspace validate           # Validate workspace configuration
   reactor workspace list             # List services and their status
-  reactor workspace up               # Start all services (future milestone)
-  reactor workspace down             # Stop all services (future milestone)
+  reactor workspace up               # Start all services
+  reactor workspace down             # Stop all services
 
 For more details, see the full documentation.`,
 	}
@@ -1032,6 +1032,7 @@ For more details, see the full documentation.`,
 	cmd.AddCommand(newWorkspaceValidateCmd())
 	cmd.AddCommand(newWorkspaceListCmd())
 	cmd.AddCommand(newWorkspaceUpCmd())
+	cmd.AddCommand(newWorkspaceDownCmd())
 	cmd.AddCommand(newWorkspaceExecCmd())
 
 	return cmd
@@ -1364,6 +1365,34 @@ For more details, see the full documentation.`,
 	return cmd
 }
 
+func newWorkspaceDownCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "down [service...]",
+		Short: "Stop workspace services",
+		Long: `Stop and remove all or specific services defined in the workspace.
+
+This command finds containers associated with the workspace using workspace
+labels and stops them in parallel. If no services are specified, all services
+in the workspace will be stopped.
+
+Examples:
+  reactor workspace down                    # Stop all services
+  reactor workspace down api frontend      # Stop specific services  
+  reactor workspace down -f my-workspace.yml # Use specific workspace file
+
+Key features:
+- Parallel execution for faster shutdown
+- Workspace label-based container discovery
+- Graceful container stopping and removal
+- Progress reporting for each service
+
+For more details, see the full documentation.`,
+		RunE: workspaceDownHandler,
+	}
+
+	return cmd
+}
+
 func newWorkspaceExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec <service> -- <command...>",
@@ -1600,6 +1629,84 @@ func workspaceExecHandler(cmd *cobra.Command, args []string) error {
 	return dockerService.ExecuteInteractiveCommand(ctx, container.ID, command)
 }
 
+// workspaceDownHandler stops and removes all or specific services in a workspace
+func workspaceDownHandler(cmd *cobra.Command, args []string) error {
+	// Get workspace file path from flag or use default
+	workspaceFile, _ := cmd.Flags().GetString("file")
+
+	// Handle workspace file path (reusing existing logic pattern)
+	var workspacePath string
+	if workspaceFile != "" {
+		if filepath.Ext(workspaceFile) != "" {
+			workspacePath = workspaceFile
+		} else {
+			// It's a directory, find workspace file in it
+			var found bool
+			var err error
+			workspacePath, found, err = workspace.FindWorkspaceFile(workspaceFile)
+			if err != nil {
+				return fmt.Errorf("error finding workspace file: %w", err)
+			}
+			if !found {
+				return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in directory: %s", workspaceFile)
+			}
+		}
+		// Verify file exists
+		if _, err := os.Stat(workspacePath); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace file not found: %s", workspacePath)
+			}
+			return fmt.Errorf("error accessing workspace file %s: %w", workspacePath, err)
+		}
+	} else {
+		// No file specified, find default workspace file in current directory
+		var found bool
+		var err error
+		workspacePath, found, err = workspace.FindWorkspaceFile("")
+		if err != nil {
+			return fmt.Errorf("error finding workspace file: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("no reactor-workspace.yml or reactor-workspace.yaml found in current directory")
+		}
+	}
+
+	// Parse workspace file
+	ws, err := workspace.ParseWorkspaceFile(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to parse workspace file: %w", err)
+	}
+
+	// Determine which services to stop
+	var servicesToStop []string
+	if len(args) == 0 {
+		// No services specified, stop all services in workspace
+		for serviceName := range ws.Services {
+			servicesToStop = append(servicesToStop, serviceName)
+		}
+	} else {
+		// Specific services specified, validate they exist
+		for _, serviceName := range args {
+			if _, exists := ws.Services[serviceName]; !exists {
+				return fmt.Errorf("service '%s' not found in workspace", serviceName)
+			}
+		}
+		servicesToStop = args
+	}
+
+	// Generate workspace hash for container labeling
+	workspaceHash, err := workspace.GenerateWorkspaceHash(workspacePath)
+	if err != nil {
+		return fmt.Errorf("failed to generate workspace hash: %w", err)
+	}
+
+	fmt.Printf("Stopping workspace services: %v\n", servicesToStop)
+	fmt.Printf("Workspace: %s\n", workspacePath)
+
+	// Stop services in parallel
+	return stopServicesInParallel(servicesToStop, workspaceHash)
+}
+
 // validateServicesAndPorts performs pre-flight validation for workspace services
 func validateServicesAndPorts(ws *workspace.Workspace, servicesToStart []string, workspacePath string, cliPorts []string) error {
 	workspaceDir := filepath.Dir(workspacePath)
@@ -1763,6 +1870,117 @@ func startServicesInParallel(ws *workspace.Workspace, servicesToStart []string, 
 	}
 
 	fmt.Printf("\nWorkspace is ready! 🚀\n")
+	return nil
+}
+
+// stopServicesInParallel stops workspace services in parallel using their workspace labels
+func stopServicesInParallel(servicesToStop []string, workspaceHash string) error {
+	ctx := context.Background()
+	dockerService, err := docker.NewService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize Docker service: %w", err)
+	}
+	defer func() {
+		if err := dockerService.Close(); err != nil {
+			log.Printf("Warning: failed to close Docker service: %v", err)
+		}
+	}()
+
+	client := dockerService.GetClient()
+
+	// Channel for collecting results
+	type serviceResult struct {
+		serviceName string
+		err         error
+		containerID string
+	}
+
+	resultChan := make(chan serviceResult, len(servicesToStop))
+
+	// Stop services in parallel
+	for _, serviceName := range servicesToStop {
+		go func(name string) {
+			fmt.Printf("[%s] Looking for container...\n", name)
+
+			// Find container using workspace labels
+			filterArgs := filters.NewArgs()
+			filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.instance=%s", workspaceHash))
+			filterArgs.Add("label", fmt.Sprintf("com.reactor.workspace.service=%s", name))
+
+			containers, err := client.ContainerList(ctx, container.ListOptions{
+				Filters: filterArgs,
+				All:     true, // Include stopped containers
+			})
+			if err != nil {
+				fmt.Printf("[%s] ❌ Failed to list containers: %v\n", name, err)
+				resultChan <- serviceResult{name, err, ""}
+				return
+			}
+
+			if len(containers) == 0 {
+				fmt.Printf("[%s] ⚠️  No container found (already removed or never created)\n", name)
+				resultChan <- serviceResult{name, nil, ""}
+				return
+			}
+
+			if len(containers) > 1 {
+				fmt.Printf("[%s] ⚠️  Multiple containers found, stopping all\n", name)
+			}
+
+			// Stop and remove each container found
+			for _, cont := range containers {
+				fmt.Printf("[%s] Stopping container %s...\n", name, cont.ID[:12])
+
+				// Stop the container first if it's running
+				if cont.State == "running" {
+					timeout := 10
+					if err := client.ContainerStop(ctx, cont.ID, container.StopOptions{Timeout: &timeout}); err != nil {
+						fmt.Printf("[%s] ⚠️  Failed to stop container: %v\n", name, err)
+					}
+				}
+
+				// Remove the container
+				if err := client.ContainerRemove(ctx, cont.ID, container.RemoveOptions{
+					Force: true, // Force removal even if running
+				}); err != nil {
+					fmt.Printf("[%s] ❌ Failed to remove container: %v\n", name, err)
+					resultChan <- serviceResult{name, err, cont.ID}
+					return
+				}
+
+				fmt.Printf("[%s] ✅ Stopped and removed container %s\n", name, cont.ID[:12])
+			}
+
+			resultChan <- serviceResult{name, nil, containers[0].ID}
+		}(serviceName)
+	}
+
+	// Collect results
+	var successCount, failCount int
+	var errors []string
+
+	for i := 0; i < len(servicesToStop); i++ {
+		result := <-resultChan
+		if result.err != nil {
+			failCount++
+			errors = append(errors, fmt.Sprintf("%s: %v", result.serviceName, result.err))
+		} else {
+			successCount++
+		}
+	}
+
+	// Print final summary
+	fmt.Printf("\n=== Workspace Stop Summary ===\n")
+	fmt.Printf("✅ Stopped successfully: %d/%d services\n", successCount, len(servicesToStop))
+	if failCount > 0 {
+		fmt.Printf("❌ Failed to stop: %d/%d services\n", failCount, len(servicesToStop))
+		for _, errMsg := range errors {
+			fmt.Printf("  - %s\n", errMsg)
+		}
+		return fmt.Errorf("%d service(s) failed to stop", failCount)
+	}
+
+	fmt.Printf("\nWorkspace stopped! 🛑\n")
 	return nil
 }
 
