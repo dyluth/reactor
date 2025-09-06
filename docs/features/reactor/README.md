@@ -101,3 +101,11 @@ This milestone provides a powerful solution for a major gap in the current ecosy
     *   **Action:** Design and implement the `reactor-workspace.yml` file format, which will allow a user to define a collection of interdependent dev containers.
 *   **Task 4.2: Implement Workspace Orchestration**
     *   **Action:** Create a new **`reactor workspace`** command group (`up`, `down`, `list`) to manage the entire collection of containers as a single logical unit.
+
+### **Milestone 5: User Onboarding & Templates (The "Polish" Milestone)**
+
+This milestone focuses on creating a seamless and intuitive first-run experience for new users.
+
+*   **Task 5.1: Implement `init` Templates**
+    *   **Action:** Enhance the `reactor init` command with a `--template` flag to generate complete, runnable "hello world" projects for different languages (Go, Python, Node.js).
+    *   **Details:** This includes generating a `devcontainer.json`, a `Dockerfile`, and sample application code, allowing a user to go from an empty directory to a running application with just two commands.

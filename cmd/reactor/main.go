@@ -16,6 +16,7 @@ import (
 	"github.com/dyluth/reactor/pkg/core"
 	"github.com/dyluth/reactor/pkg/docker"
 	"github.com/dyluth/reactor/pkg/orchestrator"
+	"github.com/dyluth/reactor/pkg/templates"
 	"github.com/dyluth/reactor/pkg/workspace"
 	"github.com/spf13/cobra"
 )
@@ -264,12 +265,33 @@ Examples:
 		RunE: configSetHandler,
 	})
 
-	cmd.AddCommand(&cobra.Command{
+	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize project configuration",
-		Long:  "Create .reactor.conf with sensible defaults and set up account directories",
-		RunE:  configInitHandler,
+		Long: `Initialize project configuration or generate a complete project from template.
+
+Without --template flag, creates a minimal devcontainer.json file for custom configuration.
+With --template flag, generates a complete, working project with sample code.
+
+Examples:
+  reactor config init                     # Create minimal devcontainer.json
+  reactor config init --template go      # Generate complete Go project
+  reactor config init --template python  # Generate complete Python project  
+  reactor config init --template node    # Generate complete Node.js project
+
+Available templates: go, python, node
+
+For more details, see the full documentation.`,
+		RunE: configInitHandler,
+	}
+
+	// Add --template flag with valid arguments for shell completion
+	initCmd.Flags().String("template", "", "Generate project from template (go, python, node)")
+	_ = initCmd.RegisterFlagCompletionFunc("template", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"go", "python", "node"}, cobra.ShellCompDirectiveNoFileComp
 	})
+
+	cmd.AddCommand(initCmd)
 
 	return cmd
 }
@@ -763,8 +785,22 @@ func configInitHandler(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	configService := config.NewService()
-	return configService.InitializeProject()
+	// Get template flag
+	templateName, _ := cmd.Flags().GetString("template")
+
+	if templateName != "" {
+		// Template mode - generate complete project from template
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+
+		return templates.GenerateFromTemplate(templateName, currentDir)
+	} else {
+		// Original behavior - create minimal devcontainer.json
+		configService := config.NewService()
+		return configService.InitializeProject()
+	}
 }
 
 func versionHandler(cmd *cobra.Command, args []string) {
@@ -1148,7 +1184,6 @@ func workspaceValidateHandler(cmd *cobra.Command, args []string) error {
 		if !filepath.IsAbs(servicePath) {
 			servicePath = filepath.Join(workspaceDir, service.Path)
 		}
-		servicePath = filepath.Clean(servicePath)
 
 		// Check for devcontainer.json in service directory
 		devcontainerPath, found, err := config.FindDevContainerFile(servicePath)
@@ -1278,7 +1313,6 @@ func workspaceListHandler(cmd *cobra.Command, args []string) error {
 		if !filepath.IsAbs(servicePath) {
 			servicePath = filepath.Join(workspaceDir, service.Path)
 		}
-		servicePath = filepath.Clean(servicePath)
 
 		// Generate expected container name using workspace naming convention
 		projectHash := config.GenerateProjectHash(servicePath)
@@ -1724,7 +1758,6 @@ func validateServicesAndPorts(ws *workspace.Workspace, servicesToStart []string,
 		if !filepath.IsAbs(servicePath) {
 			servicePath = filepath.Join(workspaceDir, service.Path)
 		}
-		servicePath = filepath.Clean(servicePath)
 
 		// Check devcontainer.json exists and is valid
 		configService := config.NewServiceWithRoot(servicePath)
@@ -1802,7 +1835,6 @@ func startServicesInParallel(ws *workspace.Workspace, servicesToStart []string, 
 			if !filepath.IsAbs(servicePath) {
 				servicePath = filepath.Join(workspaceDir, service.Path)
 			}
-			servicePath = filepath.Clean(servicePath)
 
 			// Create service-specific orchestrator config
 			serviceConfig := baseConfig

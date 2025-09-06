@@ -1,24 +1,69 @@
-# The Reactor Ecosystem
+# 🚀 reactor
 
-This repository contains the source code for the Reactor ecosystem, a suite of tools designed for modern, AI-driven software development.
+**A high-performance, developer-focused command-line interface (CLI) for the Dev Container standard.**
 
-## Projects
+`reactor` provides the fastest and most ergonomic terminal-based experience for creating, managing, and connecting to standardized development environments.
 
-This is a multi-project monorepo containing the following tools:
+---
 
-### 1. 🚀 `reactor` - A Command-Line Interface for Dev Containers
+## ⚡ Quickstart
 
-`reactor` is a high-performance, developer-focused CLI for the Dev Container standard. It provides the fastest and most ergonomic terminal-based experience for managing standardized development environments.
+Get from an empty directory to a running, containerized Go development environment in 3 commands.
 
-*   **[➡️ Full Design Document & Roadmap](./docs/features/reactor/README.md)**
+**Prerequisites:** `docker`, `git`, and `go` must be installed.
 
-### 2. 🤖 `reactor-fabric` - A Container-Native AI Agent Orchestrator
+```bash
+# 1. Create a new project directory
+mkdir my-go-app && cd my-go-app
 
-`reactor-fabric` is a standalone engine designed to manage a fleet of autonomous, container-native agents to automate complex software development and operational tasks.
+# 2. Initialize a sample Go project and dev container
+# This creates a devcontainer.json, a Dockerfile, and a "Hello World" main.go
+reactor init --template go
 
-*   **[➡️ Full Design Document](./docs/features/fabric/README.md)**
+# 3. Build and start your new dev environment!
+reactor up
+```
 
-## Development
+After `reactor up` completes, you will be inside a containerized shell. Your project directory is mounted at `/workspace`, and you can start coding.
+
+## ✨ Key Features
+
+*   **Dev Container Native:** Full support for the `devcontainer.json` specification. Works with any existing Dev Container project.
+*   **Multi-Container Workspaces:** Define and manage a full stack of microservices with a single `reactor-workspace.yml` file and the `reactor workspace` commands.
+*   **Account-Based Credentials:** Automatically and securely mount the correct credentials for different AI tools and cloud providers using `reactor`'s account management features.
+*   **High-Performance:** Built in Go with a focus on speed and efficiency.
+
+## 📖 Usage
+
+### Single Container Commands
+
+These commands operate on the `devcontainer.json` in the current directory.
+
+| Command | Description |
+| :--- | :--- |
+| `reactor up` | Build (if needed) and start your dev container. |
+| `reactor down` | Stop and remove your dev container. |
+| `reactor build` | Build or rebuild the dev container image without starting it. |
+| `reactor exec -- <cmd>` | Execute a command inside the running dev container. |
+| `reactor list` | List all `reactor`-managed dev containers on your system. |
+| `reactor init` | Create a new dev container configuration in the current directory. |
+
+### Workspace Commands
+
+These commands operate on a `reactor-workspace.yml` file in the current directory.
+
+| Command | Description |
+| :--- | :--- |
+| `reactor workspace up` | Start all services defined in your workspace. |
+| `reactor workspace down` | Stop and remove all services in your workspace. |
+| `reactor workspace list` | List the status of all services in your workspace. |
+| `reactor workspace exec <svc> -- <cmd>` | Execute a command in a specific service container. |
+
+---
+
+## 💻 Development
+
+This repository is a monorepo containing the source code for the `reactor` CLI and the `reactor-fabric` orchestration engine.
 
 ### Getting Started
 
