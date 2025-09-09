@@ -26,7 +26,7 @@ reactor/
 └── pkg/testutil/          # Test utilities and cleanup functions
 ```
 
-## 📋 **Current Status: Milestone 3 Complete, Milestone 4 Ready**
+## 📋 **Current Status: Milestone 5 Complete, Ready for Next Phase**
 
 ### ✅ **Completed: Milestone 3 - Account-Based Credential Mounting**
 - Account-based credential mounting with isolation prefixes
@@ -35,35 +35,47 @@ reactor/
 - Robust path handling for directories with spaces/special characters
 - Label-based Docker container cleanup (`com.reactor.test=true`)
 
-### 🚧 **Next: Milestone 4 - Multi-Container Workspaces**
-Implementation plan is defined in `/docs/features/reactor/milestone4_workspaces.md`:
+### ✅ **Completed: Milestone 4 - Multi-Container Workspaces**
+Implementation plan defined in `/docs/features/reactor/milestone4_workspaces.md`:
 - **PR 0**: Orchestrator refactoring (move up/down logic to pkg/orchestrator)
 - **PR 1**: Workspace parser, validate, and list commands
 - **PR 2**: Workspace up and exec commands with parallel execution
 - **PR 3**: Workspace down command and integration testing
 
+### ✅ **Completed: Milestone 5 - Template System & User Onboarding**
+Implementation plan defined in `/docs/features/reactor/milestone5_init.md`:
+- **PR 1**: Go template with complete infrastructure (sanitization, conflict detection)
+- **PR 2**: Python and Node.js templates with comprehensive integration tests
+- Enhanced `reactor init --template` command with shell completion
+- Complete project documentation overhaul in README.md
+- Dynamic project naming with cross-language sanitization
+- Full end-to-end testing with HTTP validation for all templates
+
 ## 🗂️ **Key Files to Read (Priority Order)**
 
 ### 1. **Architecture & Design Documents**
-- `/docs/features/reactor/milestone4_workspaces.md` - Next milestone specification
-- `/docs/features/reactor/milestone3_reactor_extensions.md` - Recently completed features
+- `/docs/features/reactor/milestone5_init.md` - Template system implementation (latest)
+- `/docs/features/reactor/milestone4_workspaces.md` - Multi-container workspace system
+- `/docs/features/reactor/milestone3_reactor_extensions.md` - Account-based credential mounting
 - `/CLAUDE.md` - Project-specific development guidelines
 
 ### 2. **Core Implementation Files**
+- `/pkg/templates/templates.go` - Project template content and generation (latest)
 - `/pkg/orchestrator/orchestrator.go` - Core up/down orchestration logic
 - `/pkg/core/blueprint.go` - Container blueprint creation and naming
 - `/pkg/config/service.go` - Configuration resolution and devcontainer.json parsing
 - `/pkg/docker/service.go` - Docker API interactions and container management
 
 ### 3. **Test Architecture (Critical to Understand)**
+- `/pkg/integration/template_test.go` - Template generation and build validation (latest)
 - `/pkg/integration/main_test.go` - Global test setup with Docker label cleanup
 - `/pkg/integration/milestone3_test.go` - Credential mounting integration tests
 - `/pkg/testutil/docker_cleanup.go` - Label-based cleanup functions
 - `/pkg/integration/basic_test.go` - Core functionality integration tests
 
 ### 4. **Command Handlers**
-- `/cmd/reactor/main.go` - CLI setup and command registration
-- `/cmd/reactor/up.go` - Single container up command (to be refactored in M4)
+- `/cmd/reactor/main.go` - CLI setup, command registration, and template integration (updated)
+- `/pkg/orchestrator/orchestrator.go` - Single container up/down logic (refactored from up.go)
 - `/cmd/reactor/config.go` - Configuration management commands
 
 ## 🧪 **Testing Philosophy & Architecture**
@@ -162,4 +174,4 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-**Ready for Milestone 4 Implementation** - The foundation is solid, the architecture is clean, and the test suite provides confidence for the next phase of development.
+**Milestone 5 Complete** - The reactor CLI now provides a complete developer experience with production-ready templates, comprehensive workspace management, and robust testing infrastructure. Ready for next phase of development or production deployment.
