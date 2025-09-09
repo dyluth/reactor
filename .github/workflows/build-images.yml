@@ -345,7 +345,11 @@ jobs:
         echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/node\`" >> $GITHUB_STEP_SUMMARY
         echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/go\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        PLATFORMS="${{ github.event_name == 'pull_request' && '`linux/amd64`' || '`linux/amd64`, `linux/arm64`' }}"
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          PLATFORMS="\`linux/amd64\`"
+        else
+          PLATFORMS="\`linux/amd64\`, \`linux/arm64\`"
+        fi
         echo "📱 **Platforms**: $PLATFORMS" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "🔒 Security scanning continues in background and reports to GitHub Security tab." >> $GITHUB_STEP_SUMMARY
