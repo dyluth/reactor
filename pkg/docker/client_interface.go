@@ -37,6 +37,7 @@ type DockerClient interface {
 	ContainerExecCreate(ctx context.Context, containerID string, options types.ExecConfig) (types.IDResponse, error)
 	ContainerExecAttach(ctx context.Context, execID string, config types.ExecStartCheck) (types.HijackedResponse, error)
 	ContainerExecStart(ctx context.Context, execID string, config types.ExecStartCheck) error
+	ContainerExecInspect(ctx context.Context, execID string) (types.ContainerExecInspect, error)
 
 	// Additional operations for discovery and debugging
 	ContainerDiff(ctx context.Context, containerID string) ([]container.FilesystemChange, error)
@@ -46,6 +47,8 @@ type DockerClient interface {
 
 	// Image management
 	ImagePull(ctx context.Context, refStr string, options types.ImagePullOptions) (io.ReadCloser, error)
+	ImageBuild(ctx context.Context, buildContext io.Reader, options types.ImageBuildOptions) (types.ImageBuildResponse, error)
+	ImageList(ctx context.Context, options types.ImageListOptions) ([]types.ImageSummary, error) //nolint:staticcheck // image.Summary not available in this Docker client version
 }
 
 // Ensure that *client.Client implements our DockerClient interface at compile time

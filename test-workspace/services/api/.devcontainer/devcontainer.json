@@ -1,0 +1,11 @@
+{
+  "name": "api-service",
+  "image": "node:18-alpine",
+  "remoteUser": "node",
+  "customizations": {
+    "reactor": {
+      "account": "default-account",
+      "defaultCommand": "sleep infinity"
+    }
+  }
+}

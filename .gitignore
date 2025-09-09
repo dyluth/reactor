@@ -1,9 +1,15 @@
+*temp*
 .tmp
+*.test
 .env
 build*
 tmp*
 .DS_Store
 *.out
 *.html
-*.plan
+*.plan*
 *.conf
+reactor
+
+!docs/features/reactor
+!cmd/reactor

@@ -1,0 +1,1 @@
+- always create temp files and folders in the reactor directory - do not use the hard disk root

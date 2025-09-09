@@ -3,7 +3,7 @@ package integration
 import (
 	"os"
 	"os/exec"
-	"os/user"
+
 	"strings"
 	"testing"
 
@@ -15,6 +15,13 @@ func TestEndToEndScenarios(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	reactorBinary := buildReactorBinary(t)
 
@@ -43,7 +50,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Step 1 - config init failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "Initialized project configuration") {
+		if !strings.Contains(string(output), "Initialized devcontainer.json") {
 			t.Errorf("Step 1 - Expected initialization success message")
 		}
 
@@ -58,20 +65,10 @@ func TestEndToEndScenarios(t *testing.T) {
 		}
 
 		outputStr := string(output)
-		// Get current username for dynamic test validation
-		currentUser := os.Getenv("USER")
-		if currentUser == "" {
-			// Fallback for systems where USER is not set
-			if u, err := user.Current(); err == nil {
-				currentUser = u.Username
-			} else {
-				currentUser = "unknown"
-			}
-		}
 
 		requiredConfigItems := []string{
-			"provider: claude",
-			"account:  " + currentUser,
+			"account:",
+			"image:",
 			"project hash:",
 		}
 
@@ -114,8 +111,8 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Step 3 - config set failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "Set image = python") {
-			t.Errorf("Step 3 - Expected set confirmation")
+		if !strings.Contains(string(output), "edit") || !strings.Contains(string(output), "devcontainer.json") {
+			t.Errorf("Step 3 - Expected devcontainer.json edit instruction")
 		}
 
 		// Step 4: Verify configuration change
@@ -128,8 +125,8 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Step 4 - config get failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "python") {
-			t.Errorf("Step 4 - Expected to get 'python' but got: %s", string(output))
+		if !strings.Contains(string(output), "ghcr.io/dyluth/reactor/base:latest") {
+			t.Errorf("Step 4 - Expected to get default image but got: %s", string(output))
 		}
 
 		// Step 5: Check sessions (should be empty initially)
@@ -208,11 +205,11 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Project 2 config get failed: %v", err)
 		}
 
-		if !strings.Contains(string(output1), "claude") {
-			t.Errorf("Project 1 should have claude provider but got: %s", string(output1))
+		if !strings.Contains(string(output1), "check your devcontainer.json file") {
+			t.Errorf("Project 1 should show devcontainer.json instruction but got: %s", string(output1))
 		}
-		if !strings.Contains(string(output2), "gemini") {
-			t.Errorf("Project 2 should have gemini provider but got: %s", string(output2))
+		if !strings.Contains(string(output2), "check your devcontainer.json file") {
+			t.Errorf("Project 2 should show devcontainer.json instruction but got: %s", string(output2))
 		}
 
 		// Verify they have different project hashes
@@ -259,7 +256,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		}
 
 		// Should still work the same way
-		if !strings.Contains(string(output), "Initialized project configuration") {
+		if !strings.Contains(string(output), "Initialized devcontainer.json") {
 			t.Errorf("Verbose init should still show success message")
 		}
 
@@ -276,12 +273,11 @@ func TestEndToEndScenarios(t *testing.T) {
 		outputStr := string(output)
 		// Should contain all the standard config info
 		verboseExpected := []string{
-			"Project Configuration",
-			"Resolved Configuration:",
+			"DevContainer Configuration",
+			"account:",
+			"image:",
 			"project root:",
 			"project hash:",
-			"Available Providers:",
-			"Available Images:",
 		}
 
 		for _, expected := range verboseExpected {
@@ -302,6 +298,13 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	reactorBinary := buildReactorBinary(t)
 
@@ -362,7 +365,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		if err != nil {
 			outputStr := string(output)
 			// Error message should be helpful
-			if !strings.Contains(outputStr, "not found") && !strings.Contains(outputStr, "initialize") && !strings.Contains(outputStr, "no project configuration found") {
+			if !strings.Contains(outputStr, "no devcontainer.json found") && !strings.Contains(outputStr, "initialize") && !strings.Contains(outputStr, "not found") {
 				t.Errorf("Missing config error should be helpful but got: %s", outputStr)
 			}
 		}
@@ -399,6 +402,13 @@ func TestContainerNameGeneration(t *testing.T) {
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
+
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
 
 	reactorBinary := buildReactorBinary(t)
 

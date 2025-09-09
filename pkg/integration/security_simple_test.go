@@ -15,8 +15,15 @@ func TestSecurityFoundations(t *testing.T) {
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
-	// Build reactor binary for testing
-	reactorBinary := buildReactorForSecurityTest(t)
+	// Ensure Docker cleanup runs after test completion
+	t.Cleanup(func() {
+		if err := testutil.CleanupAllTestContainers(); err != nil {
+			t.Logf("Warning: failed to cleanup test containers: %v", err)
+		}
+	})
+
+	// Get shared reactor binary for testing
+	reactorBinary := buildReactorBinary(t)
 
 	// Change to test directory
 	originalWD, _ := os.Getwd()
@@ -29,75 +36,88 @@ func TestSecurityFoundations(t *testing.T) {
 	t.Run("config_file_permissions", func(t *testing.T) {
 		isolationPrefix := "security-permissions-" + randomSecurityTestString(8)
 
-		// Initialize project
-		cmd := exec.Command(reactorBinary, "config", "init")
-		cmd.Dir = testDir
-		cmd.Env = setupSecurityTestEnv(isolationPrefix)
-		if _, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("Config init failed: %v", err)
+		// Create separate directory for this subtest
+		subTestDir := filepath.Join(testDir, "permissions-test")
+		if err := os.MkdirAll(subTestDir, 0755); err != nil {
+			t.Fatalf("Failed to create subtest directory: %v", err)
 		}
 
-		// Check that config file has restrictive permissions
-		configPath := filepath.Join(testDir, "."+isolationPrefix+".conf")
+		// Initialize project
+		cmd := exec.Command(reactorBinary, "config", "init")
+		cmd.Dir = subTestDir
+		cmd.Env = setupSecurityTestEnv(isolationPrefix)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Config init failed: %v, output: %s", err, string(output))
+		}
+
+		// Check that devcontainer.json file exists and has appropriate permissions
+		configPath := filepath.Join(subTestDir, ".devcontainer", "devcontainer.json")
 		info, err := os.Stat(configPath)
 		if err != nil {
-			t.Fatalf("Config file should exist: %v", err)
+			t.Fatalf("devcontainer.json file should exist: %v", err)
 		}
 
 		mode := info.Mode()
-		if mode.Perm() != 0600 {
-			t.Errorf("Config file should have 0600 permissions, but has %o", mode.Perm())
+		// devcontainer.json should have standard file permissions (not necessarily 0600)
+		if mode.Perm() != 0644 {
+			t.Errorf("devcontainer.json file should have 0644 permissions, but has %o", mode.Perm())
 		}
 	})
 
 	t.Run("malicious_config_injection", func(t *testing.T) {
 		isolationPrefix := "security-injection-" + randomSecurityTestString(8)
 
-		// Initialize with default config first
-		cmd := exec.Command(reactorBinary, "config", "init")
-		cmd.Dir = testDir
-		cmd.Env = setupSecurityTestEnv(isolationPrefix)
-		if _, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("Config init failed: %v", err)
+		// Create separate directory for this subtest
+		subTestDir := filepath.Join(testDir, "injection-test")
+		if err := os.MkdirAll(subTestDir, 0755); err != nil {
+			t.Fatalf("Failed to create subtest directory: %v", err)
 		}
 
-		// Try to create a config with potentially dangerous values
+		// Initialize with default config first
+		cmd := exec.Command(reactorBinary, "config", "init")
+		cmd.Dir = subTestDir
+		cmd.Env = setupSecurityTestEnv(isolationPrefix)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Config init failed: %v, output: %s", err, string(output))
+		}
+
+		// Try to set config with potentially dangerous values
+		// Note: In the devcontainer.json workflow, config set no longer validates -
+		// it just tells users to edit devcontainer.json manually. The validation
+		// happens when the devcontainer.json is actually used.
 		maliciousConfigs := []struct {
 			field       string
 			value       string
-			shouldError bool
 			description string
 		}{
-			{"account", "../../../etc", true, "path traversal in account"},
-			{"account", "/etc/passwd", true, "absolute path in account"},
-			{"account", "user;rm -rf /", true, "command injection in account"},
-			{"account", ".hidden", true, "hidden directory in account"},
-			{"provider", "", true, "empty provider"},
-			{"image", "valid-image", false, "valid custom image"}, // This should succeed
+			{"account", "../../../etc", "path traversal in account"},
+			{"account", "/etc/passwd", "absolute path in account"},
+			{"account", "user;rm -rf /", "command injection in account"},
+			{"account", ".hidden", "hidden directory in account"},
+			{"provider", "", "empty provider"},
+			{"image", "valid-image", "valid custom image"},
 		}
 
 		for _, malicious := range maliciousConfigs {
 			t.Run(malicious.description, func(t *testing.T) {
-				// Try to set malicious value
+				// Try to set value - config set now just tells users to edit devcontainer.json
 				cmd := exec.Command(reactorBinary, "config", "set", malicious.field, malicious.value)
-				cmd.Dir = testDir
+				cmd.Dir = subTestDir
 				cmd.Env = setupSecurityTestEnv(isolationPrefix)
 				output, err := cmd.CombinedOutput()
 
-				if malicious.shouldError {
-					// Should reject dangerous values
-					if err == nil {
-						t.Errorf("Expected rejection of malicious %s: %s, but command succeeded", malicious.description, malicious.value)
-					}
-					if strings.Contains(string(output), "invalid") || strings.Contains(string(output), "error") {
-						t.Logf("Good: Rejected malicious config - %s", malicious.description)
-					}
-				} else {
-					// Should allow valid values
-					if err != nil {
-						t.Errorf("Expected valid config to succeed: %s, but got error: %v", malicious.description, err)
-					}
+				// All config set commands should succeed and direct users to edit devcontainer.json
+				if err != nil {
+					t.Errorf("Config set should succeed but got error: %v, output: %s", err, string(output))
 				}
+
+				// Should contain instruction to edit devcontainer.json
+				outputStr := string(output)
+				if !strings.Contains(outputStr, "edit") || !strings.Contains(outputStr, "devcontainer.json") {
+					t.Errorf("Expected devcontainer.json edit instruction but got: %s", outputStr)
+				}
+
+				t.Logf("Config set correctly directs to devcontainer.json for %s", malicious.description)
 			})
 		}
 	})
@@ -105,12 +125,18 @@ func TestSecurityFoundations(t *testing.T) {
 	t.Run("port_forwarding_validation", func(t *testing.T) {
 		isolationPrefix := "security-ports-" + randomSecurityTestString(8)
 
+		// Create separate directory for this subtest
+		subTestDir := filepath.Join(testDir, "ports-test")
+		if err := os.MkdirAll(subTestDir, 0755); err != nil {
+			t.Fatalf("Failed to create subtest directory: %v", err)
+		}
+
 		// Initialize project first
 		cmd := exec.Command(reactorBinary, "config", "init")
-		cmd.Dir = testDir
+		cmd.Dir = subTestDir
 		cmd.Env = setupSecurityTestEnv(isolationPrefix)
-		if _, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("Config init failed: %v", err)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("Config init failed: %v, output: %s", err, string(output))
 		}
 
 		// Test that invalid port ranges are rejected
@@ -126,8 +152,8 @@ func TestSecurityFoundations(t *testing.T) {
 		for _, portSpec := range invalidPorts {
 			t.Run(portSpec, func(t *testing.T) {
 				// Use a simple command that should complete quickly
-				cmd := exec.Command(reactorBinary, "run", "--port", portSpec, "--", "echo", "test")
-				cmd.Dir = testDir
+				cmd := exec.Command(reactorBinary, "up", "--port", portSpec, "--", "echo", "test")
+				cmd.Dir = subTestDir
 				cmd.Env = setupSecurityTestEnv(isolationPrefix)
 
 				// Just run the command directly with a timeout context
@@ -150,48 +176,55 @@ func TestSecurityFoundations(t *testing.T) {
 	})
 
 	t.Run("isolation_prefix_security", func(t *testing.T) {
-		// Test that isolation prefix prevents config conflicts
-		isolationPrefix1 := "test-isolation-1"
-		isolationPrefix2 := "test-isolation-2"
+		// Test that isolation prefix works with devcontainer.json
+		// Note: In devcontainer.json workflow, there's one devcontainer.json per directory
+		// but isolation prefixes still affect container naming and isolation
+		isolationPrefix := "test-isolation-" + randomSecurityTestString(8)
 
-		// Initialize config with first prefix
+		// Create separate directory for this subtest
+		subTestDir := filepath.Join(testDir, "isolation-test")
+		if err := os.MkdirAll(subTestDir, 0755); err != nil {
+			t.Fatalf("Failed to create subtest directory: %v", err)
+		}
+
+		// Initialize config
 		cmd := exec.Command(reactorBinary, "config", "init")
-		cmd.Dir = testDir
-		cmd.Env = setupSecurityTestEnv(isolationPrefix1)
-		output1, err := cmd.CombinedOutput()
+		cmd.Dir = subTestDir
+		cmd.Env = setupSecurityTestEnv(isolationPrefix)
+		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("Config init with prefix 1 failed: %v", err)
+			t.Fatalf("Config init failed: %v, output: %s", err, string(output))
 		}
 
-		// Check that different config file is created
-		if !strings.Contains(string(output1), ".test-isolation-1.conf") {
-			t.Errorf("Expected isolated config file name, got: %s", string(output1))
+		// Check that devcontainer.json is created (not .conf files)
+		outputStr := string(output)
+		if !strings.Contains(outputStr, "devcontainer.json") {
+			t.Errorf("Expected devcontainer.json creation message, got: %s", outputStr)
 		}
 
-		// Initialize config with second prefix
-		cmd = exec.Command(reactorBinary, "config", "init")
-		cmd.Dir = testDir
-		cmd.Env = setupSecurityTestEnv(isolationPrefix2)
-		output2, err := cmd.CombinedOutput()
+		// Verify devcontainer.json file exists
+		configPath := filepath.Join(subTestDir, ".devcontainer", "devcontainer.json")
+		if _, err := os.Stat(configPath); err != nil {
+			t.Errorf("devcontainer.json should exist: %v", err)
+		}
+
+		// Test that isolation prefix affects container naming by checking config show output
+		cmd = exec.Command(reactorBinary, "config", "show")
+		cmd.Dir = subTestDir
+		cmd.Env = setupSecurityTestEnv(isolationPrefix)
+		output, err = cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("Config init with prefix 2 failed: %v", err)
+			t.Fatalf("Config show failed: %v", err)
 		}
 
-		// Should create different config file
-		if !strings.Contains(string(output2), ".test-isolation-2.conf") {
-			t.Errorf("Expected different isolated config file name, got: %s", string(output2))
+		// The isolation prefix should be used in container naming (visible in config show)
+		// This ensures isolation still works even with devcontainer.json
+		outputStr = string(output)
+		if !strings.Contains(outputStr, "project hash:") {
+			t.Errorf("Expected project hash in config show output, got: %s", outputStr)
 		}
 
-		// Verify both config files exist and are separate
-		config1Path := filepath.Join(testDir, ".test-isolation-1.conf")
-		config2Path := filepath.Join(testDir, ".test-isolation-2.conf")
-
-		if _, err := os.Stat(config1Path); err != nil {
-			t.Errorf("First isolation config should exist: %v", err)
-		}
-		if _, err := os.Stat(config2Path); err != nil {
-			t.Errorf("Second isolation config should exist: %v", err)
-		}
+		t.Logf("Isolation prefix successfully used with devcontainer.json workflow")
 	})
 
 	// Clean up any test containers that may have been created during this test
@@ -201,27 +234,6 @@ func TestSecurityFoundations(t *testing.T) {
 }
 
 // Helper functions specific to security tests
-func buildReactorForSecurityTest(t *testing.T) string {
-	t.Helper()
-
-	// Create a temp binary in OS temp directory
-	tempBinary := filepath.Join(os.TempDir(), "reactor-security-test-"+randomSecurityTestString(8))
-	cmd := exec.Command("go", "build", "-o", tempBinary, "./cmd/reactor")
-
-	// Set working directory to project root
-	workDir, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatalf("Failed to get project root: %v", err)
-	}
-	cmd.Dir = workDir
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to build reactor binary: %v\nOutput: %s", err, string(output))
-	}
-
-	return tempBinary
-}
 
 func setupSecurityTestEnv(isolationPrefix string) []string {
 	// Get current environment

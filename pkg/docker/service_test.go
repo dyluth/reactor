@@ -1,15 +1,21 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +25,49 @@ import (
 // MockDockerClient implements DockerClient interface for testing
 type MockDockerClient struct {
 	mock.Mock
+}
+
+// MockConn implements net.Conn for testing
+type MockConn struct {
+	*strings.Reader
+}
+
+func (m *MockConn) Write(b []byte) (n int, err error) {
+	return len(b), nil
+}
+
+func (m *MockConn) Close() error {
+	return nil
+}
+
+func (m *MockConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+
+func (m *MockConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+
+func (m *MockConn) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (m *MockConn) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (m *MockConn) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+// NewMockHijackedResponse creates a mock with readable content
+func NewMockHijackedResponse(output string) types.HijackedResponse {
+	reader := strings.NewReader(output)
+	conn := &MockConn{Reader: strings.NewReader(output)}
+	return types.HijackedResponse{
+		Conn:   conn,
+		Reader: bufio.NewReader(reader),
+	}
 }
 
 func (m *MockDockerClient) Ping(ctx context.Context) (types.Ping, error) {
@@ -86,6 +135,11 @@ func (m *MockDockerClient) ContainerExecStart(ctx context.Context, execID string
 	return args.Error(0)
 }
 
+func (m *MockDockerClient) ContainerExecInspect(ctx context.Context, execID string) (types.ContainerExecInspect, error) {
+	args := m.Called(ctx, execID)
+	return args.Get(0).(types.ContainerExecInspect), args.Error(1)
+}
+
 func (m *MockDockerClient) ContainerDiff(ctx context.Context, containerID string) ([]container.FilesystemChange, error) {
 	args := m.Called(ctx, containerID)
 	return args.Get(0).([]container.FilesystemChange), args.Error(1)
@@ -109,6 +163,16 @@ func (m *MockDockerClient) ContainerResize(ctx context.Context, containerID stri
 func (m *MockDockerClient) ImagePull(ctx context.Context, refStr string, options types.ImagePullOptions) (io.ReadCloser, error) {
 	args := m.Called(ctx, refStr, options)
 	return args.Get(0).(io.ReadCloser), args.Error(1)
+}
+
+func (m *MockDockerClient) ImageBuild(ctx context.Context, buildContext io.Reader, options types.ImageBuildOptions) (types.ImageBuildResponse, error) {
+	args := m.Called(ctx, buildContext, options)
+	return args.Get(0).(types.ImageBuildResponse), args.Error(1)
+}
+
+func (m *MockDockerClient) ImageList(ctx context.Context, options types.ImageListOptions) ([]image.Summary, error) { //nolint:staticcheck // image.Summary not available in this Docker client version
+	args := m.Called(ctx, options)
+	return args.Get(0).([]image.Summary), args.Error(1) //nolint:staticcheck // image.Summary not available in this Docker client version
 }
 
 // Test utilities
@@ -1387,6 +1451,1033 @@ func TestListReactorContainers_FilterError(t *testing.T) {
 	_, err := service.ListReactorContainers(context.Background())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to list containers")
+
+	mockClient.AssertExpectations(t)
+}
+
+// BUILD FUNCTIONALITY TESTS
+
+func TestImageExists_Found(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	imageName := "reactor-build:abc12345"
+
+	// Mock image list with matching image
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return(
+		[]image.Summary{ //nolint:staticcheck // image.Summary not available in this Docker client version
+			{RepoTags: []string{"reactor-build:abc12345", "reactor-build:latest"}},
+			{RepoTags: []string{"other-image:latest"}},
+		}, nil)
+
+	exists, err := service.ImageExists(context.Background(), imageName)
+	assert.NoError(t, err)
+	assert.True(t, exists)
+}
+
+func TestImageExists_NotFound(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	imageName := "reactor-build:notfound"
+
+	// Mock image list without matching image
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return(
+		[]image.Summary{ //nolint:staticcheck // image.Summary not available in this Docker client version
+			{RepoTags: []string{"reactor-build:other", "reactor-build:latest"}},
+			{RepoTags: []string{"different-image:latest"}},
+		}, nil)
+
+	exists, err := service.ImageExists(context.Background(), imageName)
+	assert.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestImageExists_Error(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	imageName := "reactor-build:abc12345"
+
+	// Mock image list error
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return(
+		[]image.Summary{}, errors.New("docker daemon error")) //nolint:staticcheck // image.Summary not available in this Docker client version
+
+	exists, err := service.ImageExists(context.Background(), imageName)
+	assert.Error(t, err)
+	assert.False(t, exists)
+	assert.Contains(t, err.Error(), "failed to list images")
+}
+
+// POST CREATE COMMAND FUNCTIONALITY TESTS
+
+func TestExecutePostCreateCommand_NilCommand(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	// No mocks needed since function should return early
+	err := service.ExecutePostCreateCommand(context.Background(), "test-container", nil)
+	assert.NoError(t, err)
+}
+
+func TestExecutePostCreateCommand_EmptyStringCommand(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	// No mocks needed since function should return early
+	err := service.ExecutePostCreateCommand(context.Background(), "test-container", "")
+	assert.NoError(t, err)
+}
+
+func TestExecutePostCreateCommand_WhitespaceStringCommand(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	// No mocks needed since function should return early
+	err := service.ExecutePostCreateCommand(context.Background(), "test-container", "   \t\n  ")
+	assert.NoError(t, err)
+}
+
+func TestExecutePostCreateCommand_StringCommand_Success(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo 'Hello World'"
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-123"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.MatchedBy(func(config types.ExecConfig) bool {
+		return len(config.Cmd) == 3 &&
+			config.Cmd[0] == "/bin/sh" &&
+			config.Cmd[1] == "-c" &&
+			config.Cmd[2] == command &&
+			config.AttachStdout && config.AttachStderr && !config.AttachStdin
+	})).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec attach
+	mockAttachResp := NewMockHijackedResponse("postCreateCommand output\n")
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(mockAttachResp, nil)
+
+	// Mock exec start
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(nil)
+
+	// Mock exec inspect for exit code
+	mockClient.On("ContainerExecInspect", mock.Anything, execID).Return(types.ContainerExecInspect{ExitCode: 0}, nil)
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.NoError(t, err)
+}
+
+func TestExecutePostCreateCommand_ArrayCommand_Success(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := []string{"npm", "install"}
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-456"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.MatchedBy(func(config types.ExecConfig) bool {
+		return len(config.Cmd) == 2 &&
+			config.Cmd[0] == "npm" &&
+			config.Cmd[1] == "install" &&
+			config.AttachStdout && config.AttachStderr && !config.AttachStdin
+	})).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec attach
+	mockAttachResp := NewMockHijackedResponse("postCreateCommand output\n")
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(mockAttachResp, nil)
+
+	// Mock exec start
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(nil)
+
+	// Mock exec inspect for exit code
+	mockClient.On("ContainerExecInspect", mock.Anything, execID).Return(types.ContainerExecInspect{ExitCode: 0}, nil)
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.NoError(t, err)
+}
+
+func TestExecutePostCreateCommand_InterfaceArrayCommand_Success(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	// Simulate how JSON unmarshaling creates []interface{} from devcontainer.json
+	command := []interface{}{"pip", "install", "-r", "requirements.txt"}
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-789"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.MatchedBy(func(config types.ExecConfig) bool {
+		return len(config.Cmd) == 4 &&
+			config.Cmd[0] == "pip" &&
+			config.Cmd[1] == "install" &&
+			config.Cmd[2] == "-r" &&
+			config.Cmd[3] == "requirements.txt"
+	})).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec attach
+	mockAttachResp := NewMockHijackedResponse("postCreateCommand output\n")
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(mockAttachResp, nil)
+
+	// Mock exec start
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(nil)
+
+	// Mock exec inspect for exit code
+	mockClient.On("ContainerExecInspect", mock.Anything, execID).Return(types.ContainerExecInspect{ExitCode: 0}, nil)
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.NoError(t, err)
+}
+
+func TestExecutePostCreateCommand_ContainerNotRunning(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo test"
+
+	// Mock container not running
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: false},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "container is not running")
+}
+
+func TestExecutePostCreateCommand_ContainerInspectFails(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo test"
+
+	// Mock container inspect failure
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(types.ContainerJSON{}, errors.New("container not found"))
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to inspect container")
+}
+
+func TestExecutePostCreateCommand_ExecCreateFails(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo test"
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec create failure
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{}, errors.New("exec create failed"))
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create exec instance for postCreateCommand")
+}
+
+func TestExecutePostCreateCommand_ExecAttachFails(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo test"
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-123"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec start (which happens before attach)
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(nil)
+
+	// Mock exec attach failure
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(types.HijackedResponse{}, errors.New("attach failed"))
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to attach to postCreateCommand execution")
+}
+
+func TestExecutePostCreateCommand_ExecStartFails(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo test"
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-123"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec start failure (attach won't be called because start fails)
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(errors.New("start failed"))
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to start postCreateCommand execution")
+}
+
+func TestExecutePostCreateCommand_NonZeroExitCode(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "exit 1"
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-123"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec attach
+	mockAttachResp := NewMockHijackedResponse("postCreateCommand output\n")
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(mockAttachResp, nil)
+
+	// Mock exec start
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(nil)
+
+	// Mock exec inspect with non-zero exit code
+	mockClient.On("ContainerExecInspect", mock.Anything, execID).Return(types.ContainerExecInspect{ExitCode: 1}, nil)
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "postCreateCommand failed with exit code 1")
+}
+
+func TestExecutePostCreateCommand_ExecInspectFails(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := "echo test"
+
+	// Mock container running check
+	containerJSON := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}
+	mockClient.On("ContainerInspect", mock.Anything, containerID).Return(containerJSON, nil)
+
+	// Mock exec creation
+	execID := "exec-123"
+	mockClient.On("ContainerExecCreate", mock.Anything, containerID, mock.AnythingOfType("types.ExecConfig")).Return(types.IDResponse{ID: execID}, nil)
+
+	// Mock exec attach
+	mockAttachResp := NewMockHijackedResponse("postCreateCommand output\n")
+	mockClient.On("ContainerExecAttach", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(mockAttachResp, nil)
+
+	// Mock exec start
+	mockClient.On("ContainerExecStart", mock.Anything, execID, mock.AnythingOfType("types.ExecStartCheck")).Return(nil)
+
+	// Mock exec inspect failure
+	mockClient.On("ContainerExecInspect", mock.Anything, execID).Return(types.ContainerExecInspect{}, errors.New("inspect failed"))
+
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to inspect postCreateCommand execution")
+}
+
+func TestExecutePostCreateCommand_InvalidCommandType(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := 12345 // Invalid type (int)
+
+	// No mocks needed since function should return early
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "postCreateCommand must be a string or array of strings, got int")
+}
+
+func TestExecutePostCreateCommand_InterfaceArrayWithInvalidType(t *testing.T) {
+	service, mockClient := setupTestService()
+	defer mockClient.AssertExpectations(t)
+
+	containerID := "test-container"
+	command := []interface{}{"npm", "install", 123} // Invalid type in array
+
+	// No mocks needed since function should return early
+	err := service.ExecutePostCreateCommand(context.Background(), containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "postCreateCommand array contains non-string element: 123")
+}
+
+// TestBuildImage test suite
+
+func TestBuildImage_Success(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Create temporary build context directory
+	tempDir := os.TempDir()
+	workspaceDir := filepath.Join(tempDir, "reactor-test-build-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	err := os.MkdirAll(workspaceDir, 0755)
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workspaceDir) }()
+
+	// Create Dockerfile
+	dockerfilePath := filepath.Join(workspaceDir, "Dockerfile")
+	err = os.WriteFile(dockerfilePath, []byte("FROM alpine:latest\nRUN echo 'test'\n"), 0644)
+	assert.NoError(t, err)
+
+	spec := BuildSpec{
+		Context:    workspaceDir,
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	// Mock ImageExists to return false (image doesn't exist)
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return([]image.Summary{}, nil)
+
+	// Mock successful build
+	buildOutput := `{"stream":"Step 1/2 : FROM alpine:latest\n"}` + "\n" +
+		`{"stream":"Successfully built abc123\n"}` + "\n" +
+		`{"stream":"Successfully tagged test-image:latest\n"}` + "\n"
+
+	mockResponse := types.ImageBuildResponse{
+		Body: io.NopCloser(strings.NewReader(buildOutput)),
+	}
+	mockClient.On("ImageBuild", mock.Anything, mock.Anything, mock.MatchedBy(func(opts types.ImageBuildOptions) bool {
+		return opts.Dockerfile == "Dockerfile" &&
+			len(opts.Tags) == 1 && opts.Tags[0] == "test-image:latest"
+	})).Return(mockResponse, nil)
+
+	err = service.BuildImage(ctx, spec, false)
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestBuildImage_ForceRebuild(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Create temporary build context directory
+	tempDir := os.TempDir()
+	workspaceDir := filepath.Join(tempDir, "reactor-test-build-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	err := os.MkdirAll(workspaceDir, 0755)
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workspaceDir) }()
+
+	// Create Dockerfile
+	dockerfilePath := filepath.Join(workspaceDir, "Dockerfile")
+	err = os.WriteFile(dockerfilePath, []byte("FROM alpine:latest\n"), 0644)
+	assert.NoError(t, err)
+
+	spec := BuildSpec{
+		Context:    workspaceDir,
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	// With forceRebuild=true, should skip ImageExists check and build anyway
+	buildOutput := `{"stream":"Successfully built abc123\n"}`
+	mockResponse := types.ImageBuildResponse{
+		Body: io.NopCloser(strings.NewReader(buildOutput)),
+	}
+	mockClient.On("ImageBuild", mock.Anything, mock.Anything, mock.Anything).Return(mockResponse, nil)
+
+	err = service.BuildImage(ctx, spec, true)
+	assert.NoError(t, err)
+
+	// Should not call ImageList when forceRebuild=true
+	mockClient.AssertNotCalled(t, "ImageList")
+	mockClient.AssertExpectations(t)
+}
+
+func TestBuildImage_ImageExistsSkipBuild(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Create temporary build context directory
+	tempDir := os.TempDir()
+	workspaceDir := filepath.Join(tempDir, "reactor-test-build-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	err := os.MkdirAll(workspaceDir, 0755)
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workspaceDir) }()
+
+	// Create Dockerfile
+	dockerfilePath := filepath.Join(workspaceDir, "Dockerfile")
+	err = os.WriteFile(dockerfilePath, []byte("FROM alpine:latest\n"), 0644)
+	assert.NoError(t, err)
+
+	spec := BuildSpec{
+		Context:    workspaceDir,
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	// Mock ImageExists to return true (image exists)
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return([]image.Summary{
+		{ID: "abc123", RepoTags: []string{"test-image:latest"}},
+	}, nil)
+
+	err = service.BuildImage(ctx, spec, false)
+	assert.NoError(t, err)
+
+	// Should not call ImageBuild when image exists and forceRebuild=false
+	mockClient.AssertNotCalled(t, "ImageBuild")
+	mockClient.AssertExpectations(t)
+}
+
+func TestBuildImage_ContextDoesNotExist(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Mock ImageExists to return false (since we check image existence first)
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return([]image.Summary{}, nil)
+
+	spec := BuildSpec{
+		Context:    "/nonexistent/path",
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	err := service.BuildImage(ctx, spec, false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "build context directory does not exist")
+}
+
+func TestBuildImage_DockerfileDoesNotExist(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Mock ImageExists to return false (since we check image existence first)
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return([]image.Summary{}, nil)
+
+	// Create temporary build context directory without Dockerfile
+	tempDir := os.TempDir()
+	workspaceDir := filepath.Join(tempDir, "reactor-test-build-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	err := os.MkdirAll(workspaceDir, 0755)
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workspaceDir) }()
+
+	spec := BuildSpec{
+		Context:    workspaceDir,
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	err = service.BuildImage(ctx, spec, false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "dockerfile does not exist")
+}
+
+func TestBuildImage_BuildFails(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Create temporary build context directory
+	tempDir := os.TempDir()
+	workspaceDir := filepath.Join(tempDir, "reactor-test-build-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	err := os.MkdirAll(workspaceDir, 0755)
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workspaceDir) }()
+
+	// Create Dockerfile
+	dockerfilePath := filepath.Join(workspaceDir, "Dockerfile")
+	err = os.WriteFile(dockerfilePath, []byte("FROM alpine:latest\n"), 0644)
+	assert.NoError(t, err)
+
+	spec := BuildSpec{
+		Context:    workspaceDir,
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	// Mock ImageExists to return false
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return([]image.Summary{}, nil)
+
+	// Mock build failure
+	mockClient.On("ImageBuild", mock.Anything, mock.Anything, mock.Anything).Return(types.ImageBuildResponse{}, errors.New("build failed"))
+
+	err = service.BuildImage(ctx, spec, false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to build image")
+	mockClient.AssertExpectations(t)
+}
+
+func TestBuildImage_StreamOutputError(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+
+	// Create temporary build context directory
+	tempDir := os.TempDir()
+	workspaceDir := filepath.Join(tempDir, "reactor-test-build-"+strings.ReplaceAll(t.Name(), "/", "-"))
+	err := os.MkdirAll(workspaceDir, 0755)
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(workspaceDir) }()
+
+	// Create Dockerfile
+	dockerfilePath := filepath.Join(workspaceDir, "Dockerfile")
+	err = os.WriteFile(dockerfilePath, []byte("FROM alpine:latest\n"), 0644)
+	assert.NoError(t, err)
+
+	spec := BuildSpec{
+		Context:    workspaceDir,
+		Dockerfile: "Dockerfile",
+		ImageName:  "test-image:latest",
+	}
+
+	// Mock ImageExists to return false
+	mockClient.On("ImageList", mock.Anything, types.ImageListOptions{}).Return([]image.Summary{}, nil)
+
+	// Mock build with error in output stream
+	buildOutput := `{"errorDetail":{"message":"build error"},"error":"build error"}`
+	mockResponse := types.ImageBuildResponse{
+		Body: io.NopCloser(strings.NewReader(buildOutput)),
+	}
+	mockClient.On("ImageBuild", mock.Anything, mock.Anything, mock.Anything).Return(mockResponse, nil)
+
+	err = service.BuildImage(ctx, spec, false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "build failed")
+
+	// Give time for any background goroutines to complete before asserting expectations
+	time.Sleep(10 * time.Millisecond)
+	mockClient.AssertExpectations(t)
+}
+
+// TestExecuteInteractiveCommand test suite
+
+func TestExecuteInteractiveCommand_Success(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{"bash", "-c", "echo hello"}
+
+	// Mock container inspect - running container
+	mockClient.On("ContainerInspect", ctx, containerID).Return(types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}, nil)
+
+	// Mock exec create
+	execResp := types.IDResponse{ID: "exec-123"}
+	mockClient.On("ContainerExecCreate", ctx, containerID, mock.MatchedBy(func(config types.ExecConfig) bool {
+		return config.AttachStdout && config.AttachStderr && config.AttachStdin && config.Tty &&
+			len(config.Cmd) == 3 && config.Cmd[0] == "bash"
+	})).Return(execResp, nil)
+
+	// Mock exec attach
+	attachResp := NewMockHijackedResponse("hello world\n")
+	mockClient.On("ContainerExecAttach", ctx, "exec-123", mock.MatchedBy(func(config types.ExecStartCheck) bool {
+		return config.Tty
+	})).Return(attachResp, nil)
+
+	// Mock exec start
+	mockClient.On("ContainerExecStart", ctx, "exec-123", mock.MatchedBy(func(config types.ExecStartCheck) bool {
+		return config.Tty
+	})).Return(nil)
+
+	// Mock exec inspect (command completed successfully)
+	mockClient.On("ContainerExecInspect", ctx, "exec-123").Return(types.ContainerExecInspect{
+		Running:  false,
+		ExitCode: 0,
+	}, nil)
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestExecuteInteractiveCommand_EmptyCommand(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{}
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "command array cannot be empty")
+
+	// Should not call any Docker methods
+	mockClient.AssertExpectations(t)
+}
+
+func TestExecuteInteractiveCommand_ContainerNotRunning(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{"bash"}
+
+	// Mock container inspect - stopped container
+	mockClient.On("ContainerInspect", ctx, containerID).Return(types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: false},
+		},
+	}, nil)
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "container test-container is not running")
+	mockClient.AssertExpectations(t)
+}
+
+func TestExecuteInteractiveCommand_ContainerInspectFails(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{"bash"}
+
+	// Mock container inspect failure
+	mockClient.On("ContainerInspect", ctx, containerID).Return(types.ContainerJSON{}, errors.New("container not found"))
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to inspect container")
+	mockClient.AssertExpectations(t)
+}
+
+func TestExecuteInteractiveCommand_ExecCreateFails(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{"bash"}
+
+	// Mock container inspect - running container
+	mockClient.On("ContainerInspect", ctx, containerID).Return(types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}, nil)
+
+	// Mock exec create failure
+	mockClient.On("ContainerExecCreate", ctx, containerID, mock.Anything).Return(types.IDResponse{}, errors.New("exec create failed"))
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create exec instance")
+	mockClient.AssertExpectations(t)
+}
+
+func TestExecuteInteractiveCommand_ExecAttachFails(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{"bash"}
+
+	// Mock container inspect - running container
+	mockClient.On("ContainerInspect", ctx, containerID).Return(types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}, nil)
+
+	// Mock exec create
+	execResp := types.IDResponse{ID: "exec-123"}
+	mockClient.On("ContainerExecCreate", ctx, containerID, mock.Anything).Return(execResp, nil)
+
+	// Mock exec attach failure
+	mockClient.On("ContainerExecAttach", ctx, "exec-123", mock.Anything).Return(types.HijackedResponse{}, errors.New("attach failed"))
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to attach to exec instance")
+	mockClient.AssertExpectations(t)
+}
+
+func TestExecuteInteractiveCommand_ExecStartFails(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	containerID := "test-container"
+	command := []string{"bash"}
+
+	// Mock container inspect - running container
+	mockClient.On("ContainerInspect", ctx, containerID).Return(types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			State: &types.ContainerState{Running: true},
+		},
+	}, nil)
+
+	// Mock exec create
+	execResp := types.IDResponse{ID: "exec-123"}
+	mockClient.On("ContainerExecCreate", ctx, containerID, mock.Anything).Return(execResp, nil)
+
+	// Mock exec attach
+	attachResp := NewMockHijackedResponse("test output")
+	mockClient.On("ContainerExecAttach", ctx, "exec-123", mock.Anything).Return(attachResp, nil)
+
+	// Mock exec start failure
+	mockClient.On("ContainerExecStart", ctx, "exec-123", mock.Anything).Return(errors.New("start failed"))
+
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to start command execution")
+	mockClient.AssertExpectations(t)
+}
+
+// TestListContainersByLabel test suite
+
+func TestListContainersByLabel_Success(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	labelKey := "com.reactor.workspace.service"
+	labelValue := "api"
+
+	// Mock container list
+	mockContainers := []types.Container{
+		{
+			ID:    "container1",
+			Names: []string{"/test-api-1"},
+			Image: "test:latest",
+			State: "running",
+			Labels: map[string]string{
+				"com.reactor.workspace.service":  "api",
+				"com.reactor.workspace.instance": "abc123",
+			},
+		},
+		{
+			ID:    "container2",
+			Names: []string{"/test-api-2"},
+			Image: "test:latest",
+			State: "exited",
+			Labels: map[string]string{
+				"com.reactor.workspace.service": "api",
+			},
+		},
+		{
+			ID:    "container3",
+			Names: []string{"/other-service"},
+			Image: "other:latest",
+			State: "running",
+			Labels: map[string]string{
+				"com.reactor.workspace.service": "frontend", // Different service
+			},
+		},
+		{
+			ID:     "container4",
+			Names:  []string{"/no-labels"},
+			Image:  "none:latest",
+			State:  "running",
+			Labels: nil, // No labels
+		},
+	}
+
+	mockClient.On("ContainerList", mock.Anything, mock.MatchedBy(func(opts container.ListOptions) bool {
+		return opts.All == true
+	})).Return(mockContainers, nil)
+
+	result, err := service.ListContainersByLabel(ctx, labelKey, labelValue)
+	assert.NoError(t, err)
+	assert.Len(t, result, 2) // Only containers with matching label
+
+	// Check first container (running)
+	assert.Equal(t, "container1", result[0].ID)
+	assert.Equal(t, "test-api-1", result[0].Name)
+	assert.Equal(t, StatusRunning, result[0].Status)
+	assert.Equal(t, "test:latest", result[0].Image)
+
+	// Check second container (stopped)
+	assert.Equal(t, "container2", result[1].ID)
+	assert.Equal(t, "test-api-2", result[1].Name)
+	assert.Equal(t, StatusStopped, result[1].Status)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestListContainersByLabel_NoMatches(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	labelKey := "com.reactor.workspace.service"
+	labelValue := "nonexistent"
+
+	// Mock container list with containers that don't match
+	mockContainers := []types.Container{
+		{
+			ID:    "container1",
+			Names: []string{"/other-service"},
+			State: "running",
+			Labels: map[string]string{
+				"com.reactor.workspace.service": "api", // Different value
+			},
+		},
+		{
+			ID:     "container2",
+			Names:  []string{"/no-labels"},
+			State:  "running",
+			Labels: nil, // No labels
+		},
+	}
+
+	mockClient.On("ContainerList", mock.Anything, mock.Anything).Return(mockContainers, nil)
+
+	result, err := service.ListContainersByLabel(ctx, labelKey, labelValue)
+	assert.NoError(t, err)
+	assert.Len(t, result, 0) // No matching containers
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestListContainersByLabel_ContainerListError(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	labelKey := "com.reactor.workspace.service"
+	labelValue := "api"
+
+	// Mock container list error
+	mockClient.On("ContainerList", mock.Anything, mock.Anything).Return([]types.Container{}, errors.New("docker daemon error"))
+
+	result, err := service.ListContainersByLabel(ctx, labelKey, labelValue)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list containers by label")
+	assert.Nil(t, result)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestListContainersByLabel_StatusMapping(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	labelKey := "test.label"
+	labelValue := "test"
+
+	// Mock containers with different states
+	mockContainers := []types.Container{
+		{
+			ID:     "running-container",
+			Names:  []string{"/running"},
+			State:  "running",
+			Labels: map[string]string{"test.label": "test"},
+		},
+		{
+			ID:     "stopped-container",
+			Names:  []string{"/stopped"},
+			State:  "stopped",
+			Labels: map[string]string{"test.label": "test"},
+		},
+		{
+			ID:     "exited-container",
+			Names:  []string{"/exited"},
+			State:  "exited",
+			Labels: map[string]string{"test.label": "test"},
+		},
+		{
+			ID:     "unknown-container",
+			Names:  []string{"/unknown"},
+			State:  "paused", // Unknown state
+			Labels: map[string]string{"test.label": "test"},
+		},
+	}
+
+	mockClient.On("ContainerList", mock.Anything, mock.Anything).Return(mockContainers, nil)
+
+	result, err := service.ListContainersByLabel(ctx, labelKey, labelValue)
+	assert.NoError(t, err)
+	assert.Len(t, result, 4)
+
+	// Check status mapping
+	assert.Equal(t, StatusRunning, result[0].Status)
+	assert.Equal(t, StatusStopped, result[1].Status)
+	assert.Equal(t, StatusStopped, result[2].Status)  // exited -> stopped
+	assert.Equal(t, StatusNotFound, result[3].Status) // unknown -> not found
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestListContainersByLabel_EmptyNames(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+	ctx := context.Background()
+	labelKey := "test.label"
+	labelValue := "test"
+
+	// Mock container with no names
+	mockContainers := []types.Container{
+		{
+			ID:     "no-name-container",
+			Names:  []string{}, // Empty names array
+			State:  "running",
+			Labels: map[string]string{"test.label": "test"},
+		},
+	}
+
+	mockClient.On("ContainerList", mock.Anything, mock.Anything).Return(mockContainers, nil)
+
+	result, err := service.ListContainersByLabel(ctx, labelKey, labelValue)
+	assert.NoError(t, err)
+	assert.Len(t, result, 1)
+	assert.Equal(t, "", result[0].Name) // Empty name when Names array is empty
 
 	mockClient.AssertExpectations(t)
 }

@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Service handles configuration operations
 type Service struct {
 	projectRoot string
-	configPath  string
 }
 
 // NewService creates a new configuration service
@@ -21,248 +22,179 @@ func NewService() *Service {
 
 	return &Service{
 		projectRoot: cwd,
-		configPath:  GetProjectConfigPath(),
 	}
 }
 
-// LoadConfiguration loads and resolves the complete configuration
-func (s *Service) LoadConfiguration(cliProvider, cliAccount, cliImage string, cliDanger bool) (*ResolvedConfig, error) {
-	// 1. Load project configuration
-	projectConfig, err := LoadProjectConfig(s.configPath)
+// NewServiceWithRoot creates a new configuration service with a specific project root
+func NewServiceWithRoot(projectRoot string) *Service {
+	return &Service{
+		projectRoot: projectRoot,
+	}
+}
+
+// ResolveConfiguration loads and resolves configuration using the new devcontainer.json workflow
+func (s *Service) ResolveConfiguration() (*ResolvedConfig, error) {
+	// 1. Find devcontainer.json
+	configPath, found, err := FindDevContainerFile(s.projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("error searching for devcontainer.json: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("no devcontainer.json found in %s or %s. Run 'reactor init' to create one",
+			filepath.Join(s.projectRoot, ".devcontainer", "devcontainer.json"),
+			filepath.Join(s.projectRoot, ".devcontainer.json"))
+	}
+
+	// 2. Parse devcontainer.json
+	devConfig, err := LoadDevContainerConfig(configPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Apply CLI flag overrides (permanent updates to config file)
-	updated := false
-	if cliProvider != "" && cliProvider != projectConfig.Provider {
-		projectConfig.Provider = cliProvider
-		updated = true
-	}
-	if cliAccount != "" && cliAccount != projectConfig.Account {
-		projectConfig.Account = cliAccount
-		updated = true
-	}
-	if cliImage != "" && cliImage != projectConfig.Image {
-		projectConfig.Image = cliImage
-		updated = true
-	}
-	if cliDanger != projectConfig.Danger {
-		projectConfig.Danger = cliDanger
-		updated = true
-	}
+	// 3. Map DevContainerConfig to ResolvedConfig
+	return s.mapToResolvedConfig(devConfig)
+}
 
-	// Save config if it was updated by CLI flags
-	if updated {
-		if err := SaveProjectConfig(projectConfig, s.configPath); err != nil {
-			return nil, fmt.Errorf("failed to save updated configuration: %w", err)
+// mapToResolvedConfig transforms DevContainerConfig into ResolvedConfig
+func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedConfig, error) {
+	// Extract account from customizations or use system default
+	account := ""
+	defaultCommand := ""
+	if devConfig.Customizations != nil && devConfig.Customizations.Reactor != nil {
+		account = devConfig.Customizations.Reactor.Account
+		defaultCommand = devConfig.Customizations.Reactor.DefaultCommand
+	}
+	if account == "" {
+		systemUser, err := GetSystemUsername()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get system username for default account: %w", err)
 		}
+		account = systemUser
 	}
 
-	// 3. Resolve provider info
-	providerInfo, exists := BuiltinProviders[projectConfig.Provider]
-	if !exists {
-		return nil, fmt.Errorf("unknown provider: %s. Available providers: claude, gemini", projectConfig.Provider)
+	// For now, use claude as default provider until we implement provider-agnostic design
+	providerInfo := BuiltinProviders["claude"]
+
+	// Use image from devcontainer.json or default
+	image := devConfig.Image
+	if image == "" {
+		image = providerInfo.DefaultImage
 	}
 
-	// 4. Resolve final image
-	finalImage := ResolveImage(projectConfig.Image, providerInfo.DefaultImage, cliImage)
+	// Parse and validate forwardPorts from devcontainer.json
+	forwardPorts, err := parseForwardPorts(devConfig.ForwardPorts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse forwardPorts from devcontainer.json: %w", err)
+	}
 
-	// 5. Generate project hash
+	// Extract remoteUser from devcontainer.json (will be defaulted in core layer if empty)
+	remoteUser := devConfig.RemoteUser
+
+	// Generate project hash and paths
 	projectHash := GenerateProjectHash(s.projectRoot)
-
-	// 6. Resolve directory paths
 	reactorHome, err := GetReactorHomeDir()
 	if err != nil {
 		return nil, err
 	}
 
-	accountConfigDir := filepath.Join(reactorHome, projectConfig.Account)
+	accountConfigDir := filepath.Join(reactorHome, account)
 	projectConfigDir := filepath.Join(accountConfigDir, projectHash)
 
 	return &ResolvedConfig{
-		Provider:         providerInfo,
-		Account:          projectConfig.Account,
-		Image:            finalImage,
-		ProjectRoot:      s.projectRoot,
-		ProjectHash:      projectHash,
-		AccountConfigDir: accountConfigDir,
-		ProjectConfigDir: projectConfigDir,
-		Danger:           projectConfig.Danger,
+		Provider:          providerInfo,
+		Account:           account,
+		Image:             image,
+		ProjectRoot:       s.projectRoot,
+		ProjectHash:       projectHash,
+		AccountConfigDir:  accountConfigDir,
+		ProjectConfigDir:  projectConfigDir,
+		ForwardPorts:      forwardPorts,
+		RemoteUser:        remoteUser,
+		Build:             devConfig.Build,
+		PostCreateCommand: devConfig.PostCreateCommand,
+		DefaultCommand:    defaultCommand,
+		Danger:            false, // Default to safe mode for now
 	}, nil
 }
 
-// InitializeProject creates a new .reactor.conf with defaults and sets up directories
+// InitializeProject creates a basic devcontainer.json template
 func (s *Service) InitializeProject() error {
-	// Check if config already exists
-	if _, err := os.Stat(s.configPath); err == nil {
-		return fmt.Errorf("project already initialized. Configuration exists at %s", s.configPath)
-	}
-
-	// Create default configuration
-	config, err := CreateDefaultProjectConfig()
+	// Check if devcontainer.json already exists
+	configPath, found, err := FindDevContainerFile(s.projectRoot)
 	if err != nil {
-		return err
+		return fmt.Errorf("error checking for existing devcontainer.json: %w", err)
+	}
+	if found {
+		return fmt.Errorf("project already initialized. Configuration exists at %s", configPath)
 	}
 
-	// Save the configuration
-	if err := SaveProjectConfig(config, s.configPath); err != nil {
-		return err
+	// Create .devcontainer directory
+	devcontainerDir := filepath.Join(s.projectRoot, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .devcontainer directory: %w", err)
 	}
 
-	// Create necessary directories
-	if err := s.createProjectDirectories(config); err != nil {
-		return err
+	// Get system username for default account
+	username, err := GetSystemUsername()
+	if err != nil {
+		return fmt.Errorf("failed to get system username: %w", err)
 	}
 
-	// Print configuration info
-	fmt.Printf("Initialized project configuration at: %s\n\n", s.configPath)
+	// Create basic devcontainer.json template
+	configPath = filepath.Join(devcontainerDir, "devcontainer.json")
+	template := fmt.Sprintf(`{
+	"name": "%s",
+	"image": "ghcr.io/dyluth/reactor/base:latest",
+	"remoteUser": "root",
+	
+	"customizations": {
+		"reactor": {
+			"account": "%s"
+		}
+	}
+}`, filepath.Base(s.projectRoot), username)
+
+	if err := os.WriteFile(configPath, []byte(template), 0644); err != nil {
+		return fmt.Errorf("failed to write devcontainer.json: %w", err)
+	}
+
+	fmt.Printf("Initialized devcontainer.json at: %s\n\n", configPath)
 	fmt.Printf("Default configuration:\n")
-	fmt.Printf("  provider: %s\n", config.Provider)
-	fmt.Printf("  account:  %s\n", config.Account)
-	fmt.Printf("  image:    %s\n", config.Image)
-	fmt.Printf("  danger:   %t\n\n", config.Danger)
-
-	fmt.Printf("To change these settings, run:\n")
-	fmt.Printf("  reactor config set provider <claude|gemini>\n")
-	fmt.Printf("  reactor config set account <account-name>\n")
-	fmt.Printf("  reactor config set image <base|python|go>\n")
-	fmt.Printf("  reactor config set danger <true|false>\n\n")
+	fmt.Printf("  name: %s\n", filepath.Base(s.projectRoot))
+	fmt.Printf("  image: ghcr.io/dyluth/reactor/base:latest\n")
+	fmt.Printf("  account: %s\n\n", username)
+	fmt.Printf("Edit %s to customize your development environment.\n", configPath)
 
 	return nil
 }
 
-// createProjectDirectories creates the necessary account and provider directories
-func (s *Service) createProjectDirectories(config *ProjectConfig) error {
-	projectHash := GenerateProjectHash(s.projectRoot)
-
-	reactorHome, err := GetReactorHomeDir()
-	if err != nil {
-		return err
-	}
-
-	// Create ~/.reactor/<account>/<project-hash>/<provider>/ directories
-	providerInfo := BuiltinProviders[config.Provider]
-	for _, mount := range providerInfo.Mounts {
-		dirPath := filepath.Join(reactorHome, config.Account, projectHash, mount.Source)
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dirPath, err)
-		}
-		fmt.Printf("Created directory: %s\n", dirPath)
-	}
-
-	return nil
-}
-
-// GetConfigValue retrieves a configuration value by key
-func (s *Service) GetConfigValue(key string) (interface{}, error) {
-	config, err := LoadProjectConfig(s.configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	switch key {
-	case "provider":
-		return config.Provider, nil
-	case "account":
-		return config.Account, nil
-	case "image":
-		return config.Image, nil
-	case "danger":
-		return config.Danger, nil
-	default:
-		return nil, fmt.Errorf("unknown configuration key: %s. Valid keys: provider, account, image, danger", key)
-	}
-}
-
-// SetConfigValue sets a configuration value by key
-func (s *Service) SetConfigValue(key, value string) error {
-	config, err := LoadProjectConfig(s.configPath)
-	if err != nil {
-		return err
-	}
-
-	switch key {
-	case "provider":
-		if err := ValidateProvider(value); err != nil {
-			return err
-		}
-		config.Provider = value
-	case "account":
-		if err := ValidateAccount(value); err != nil {
-			return err
-		}
-		config.Account = value
-	case "image":
-		if err := ValidateImage(value); err != nil {
-			return err
-		}
-		config.Image = value
-	case "danger":
-		switch value {
-		case "true", "1", "yes", "on":
-			config.Danger = true
-		case "false", "0", "no", "off":
-			config.Danger = false
-		default:
-			return fmt.Errorf("invalid boolean value for danger: %s. Use true/false", value)
-		}
-	default:
-		return fmt.Errorf("unknown configuration key: %s. Valid keys: provider, account, image, danger", key)
-	}
-
-	// Save the updated configuration
-	if err := SaveProjectConfig(config, s.configPath); err != nil {
-		return err
-	}
-
-	// If account or provider changed, create directories as needed
-	if key == "account" || key == "provider" {
-		if err := s.createProjectDirectories(config); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to create directories: %v\n", err)
-		}
-	}
-
-	return nil
-}
-
-// ShowConfiguration displays the current configuration with directory paths
+// ShowConfiguration displays the current devcontainer configuration
 func (s *Service) ShowConfiguration() error {
-	config, err := LoadProjectConfig(s.configPath)
+	// Try to resolve current configuration
+	resolved, err := s.ResolveConfiguration()
 	if err != nil {
 		return err
 	}
 
-	resolved, err := s.LoadConfiguration("", "", "", false)
+	// Find the devcontainer.json file to show its path
+	configPath, found, err := FindDevContainerFile(s.projectRoot)
 	if err != nil {
-		return err
+		return fmt.Errorf("error finding devcontainer.json: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("no devcontainer.json found")
 	}
 
-	fmt.Printf("Project Configuration (%s):\n", s.configPath)
-	fmt.Printf("  provider: %s\n", config.Provider)
-	fmt.Printf("  account:  %s\n", config.Account)
-	fmt.Printf("  image:    %s\n", config.Image)
-	fmt.Printf("  danger:   %t\n\n", config.Danger)
-
-	fmt.Printf("Resolved Configuration:\n")
-	fmt.Printf("  final image:     %s\n", resolved.Image)
+	fmt.Printf("DevContainer Configuration (%s):\n", configPath)
+	fmt.Printf("  account:         %s\n", resolved.Account)
+	fmt.Printf("  image:           %s\n", resolved.Image)
 	fmt.Printf("  project root:    %s\n", resolved.ProjectRoot)
 	fmt.Printf("  project hash:    %s\n", resolved.ProjectHash)
 	fmt.Printf("  account dir:     %s\n", resolved.AccountConfigDir)
 	fmt.Printf("  project config:  %s\n\n", resolved.ProjectConfigDir)
 
-	fmt.Printf("Available Providers:\n")
-	for name, info := range BuiltinProviders {
-		fmt.Printf("  %s (default image: %s)\n", name, info.DefaultImage)
-		for _, mount := range info.Mounts {
-			fmt.Printf("    - mounts %s -> %s\n", mount.Source, mount.Target)
-		}
-	}
-
-	fmt.Printf("\nAvailable Images:\n")
-	for alias, image := range BuiltinImages {
-		fmt.Printf("  %s -> %s\n", alias, image)
-	}
+	fmt.Printf("Edit %s to customize your development environment.\n", configPath)
+	fmt.Printf("See https://containers.dev/implementors/json_reference/ for full specification.\n")
 
 	return nil
 }
@@ -317,4 +249,62 @@ func (s *Service) ListAccounts() error {
 	}
 
 	return nil
+}
+
+// parseForwardPorts parses the forwardPorts array from devcontainer.json
+// Handles both int (8080 -> 8080:8080) and string ("8080:3000") formats
+func parseForwardPorts(forwardPorts []interface{}) ([]PortMapping, error) {
+	var result []PortMapping
+
+	for i, port := range forwardPorts {
+		var hostPort, containerPort int
+		var err error
+
+		switch v := port.(type) {
+		case float64:
+			// JSON numbers are unmarshalled as float64 in Go
+			hostPort = int(v)
+			containerPort = int(v)
+
+			// Validate port range
+			if hostPort < 1 || hostPort > 65535 {
+				return nil, fmt.Errorf("forwardPorts[%d]: port %d is out of valid range (1-65535)", i, hostPort)
+			}
+
+		case string:
+			// Parse "host:container" format
+			parts := strings.Split(v, ":")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("forwardPorts[%d]: invalid string format '%s', expected 'host:container'", i, v)
+			}
+
+			hostPort, err = strconv.Atoi(parts[0])
+			if err != nil {
+				return nil, fmt.Errorf("forwardPorts[%d]: invalid host port '%s', must be a number", i, parts[0])
+			}
+
+			containerPort, err = strconv.Atoi(parts[1])
+			if err != nil {
+				return nil, fmt.Errorf("forwardPorts[%d]: invalid container port '%s', must be a number", i, parts[1])
+			}
+
+			// Validate port ranges
+			if hostPort < 1 || hostPort > 65535 {
+				return nil, fmt.Errorf("forwardPorts[%d]: host port %d is out of valid range (1-65535)", i, hostPort)
+			}
+			if containerPort < 1 || containerPort > 65535 {
+				return nil, fmt.Errorf("forwardPorts[%d]: container port %d is out of valid range (1-65535)", i, containerPort)
+			}
+
+		default:
+			return nil, fmt.Errorf("forwardPorts[%d]: invalid type %T, expected number or string", i, v)
+		}
+
+		result = append(result, PortMapping{
+			HostPort:      hostPort,
+			ContainerPort: containerPort,
+		})
+	}
+
+	return result, nil
 }

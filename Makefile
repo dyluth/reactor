@@ -37,7 +37,7 @@ test: test-unit test-integration
 
 ## Run unit tests only  
 test-unit:
-	go test -v ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil
+	go test -v ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/workspace
 
 ## Run integration tests only
 test-integration:
@@ -50,7 +50,7 @@ test-isolated: test-unit-isolated test-integration-isolated
 ## Run unit tests with isolation
 test-unit-isolated:
 	@echo "Running unit tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/workspace
 
 ## Run integration tests with isolation
 test-integration-isolated:
@@ -59,13 +59,13 @@ test-integration-isolated:
 
 ## Run tests with coverage
 test-coverage:
-	go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/integration
+	go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/workspace ./pkg/integration
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Run tests with coverage and isolation (recommended for CI)
 test-coverage-isolated:
 	@echo "Running coverage tests with isolation prefix: $(TEST_PREFIX)"
-	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/integration
+	REACTOR_ISOLATION_PREFIX=$(TEST_PREFIX) go test -v -coverprofile=coverage.out ./pkg/config ./pkg/core ./pkg/docker ./pkg/testutil ./pkg/workspace ./pkg/integration
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Comprehensive CI check - runs all validation needed for production confidence

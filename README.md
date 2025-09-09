@@ -1,200 +1,100 @@
-# Reactor
+# 🚀 reactor
 
-A command-line tool that provides developers with isolated, containerized environments for AI CLI tools like Claude and Gemini.
+**A high-performance, developer-focused command-line interface (CLI) for the Dev Container standard.**
 
-## Why Reactor?
+`reactor` provides the fastest and most ergonomic terminal-based experience for creating, managing, and connecting to standardized development environments.
 
-- **Environment Isolation**: Run AI tools in clean containers without polluting your host system
-- **Account Separation**: Keep personal and work AI configurations completely separate
-- **Fast Recovery**: Reuse existing containers for sub-3-second startup times
-- **Discovery Mode**: Safely evaluate new AI tools to see exactly what they create
+---
 
-## Quick Start
+## ⚡ Quickstart
 
-### Prerequisites
-- Docker installed and running
-- macOS or Linux (amd64/arm64)
+Get from an empty directory to a running, containerized Go development environment in 3 commands.
 
-### Installation
+**Prerequisites:** `docker`, `git`, and `go` must be installed.
+
 ```bash
-# Download and install latest release
-curl -L https://github.com/dyluth/reactor/releases/latest/download/reactor-$(uname -s)-$(uname -m) -o reactor
-chmod +x reactor
-sudo mv reactor /usr/local/bin/
+# 1. Create a new project directory
+mkdir my-go-app && cd my-go-app
+
+# 2. Initialize a sample Go project and dev container
+# This creates a devcontainer.json, a Dockerfile, and a "Hello World" main.go
+reactor init --template go
+
+# 3. Build and start your new dev environment!
+reactor up
 ```
 
-### Basic Usage
-```bash
-# Initialize a project
-cd your-project
-reactor config init
+After `reactor up` completes, you will be inside a containerized shell. Your project directory is mounted at `/workspace`, and you can start coding.
 
-# Start an AI session (creates container on first run)
-reactor run
+## ✨ Key Features
 
-# Use with port forwarding for web development
-reactor run -p 8000:8000
+*   **Dev Container Native:** Full support for the `devcontainer.json` specification. Works with any existing Dev Container project.
+*   **Multi-Container Workspaces:** Define and manage a full stack of microservices with a single `reactor-workspace.yml` file and the `reactor workspace` commands.
+*   **Account-Based Credentials:** Automatically and securely mount the correct credentials for different AI tools and cloud providers using `reactor`'s account management features.
+*   **High-Performance:** Built in Go with a focus on speed and efficiency.
 
-# Evaluate a new AI tool safely
-reactor run --discovery-mode
-reactor diff  # See what files it created
-```
+## 📖 Usage
 
-## Core Features
+### Single Container Commands
 
-### Account-Based Isolation
-Each account gets separate configuration storage:
-```yaml
-# .reactor.conf
-provider: claude    # or gemini, custom
-account: personal   # or work, team, etc.
-image: python       # base, python, node, go, or custom
-```
+These commands operate on the `devcontainer.json` in the current directory.
 
-### Built-in Images
+| Command | Description |
+| :--- | :--- |
+| `reactor up` | Build (if needed) and start your dev container. |
+| `reactor down` | Stop and remove your dev container. |
+| `reactor build` | Build or rebuild the dev container image without starting it. |
+| `reactor exec -- <cmd>` | Execute a command inside the running dev container. |
+| `reactor list` | List all `reactor`-managed dev containers on your system. |
+| `reactor init` | Create a new dev container configuration in the current directory. |
 
-**Official images (automatically built via GitHub Actions):**
-- **base**: Core tools + Claude & Gemini CLI (`ghcr.io/dyluth/reactor/base`)
-- **python**: Base + Python development environment (`ghcr.io/dyluth/reactor/python`)
-- **node**: Base + Node.js development environment (`ghcr.io/dyluth/reactor/node`)
-- **go**: Base + Go development environment (`ghcr.io/dyluth/reactor/go`)
-- **custom**: Use any Docker image
+### Workspace Commands
 
-All official images support both `linux/amd64` and `linux/arm64` architectures and are updated automatically when changes are made to the image definitions.
+These commands operate on a `reactor-workspace.yml` file in the current directory.
 
-### Container Recovery
-- **First run**: ~60-90 seconds (pulls image, creates container)
-- **Subsequent runs**: ~3 seconds (recovers existing container)
+| Command | Description |
+| :--- | :--- |
+| `reactor workspace up` | Start all services defined in your workspace. |
+| `reactor workspace down` | Stop and remove all services in your workspace. |
+| `reactor workspace list` | List the status of all services in your workspace. |
+| `reactor workspace exec <svc> -- <cmd>` | Execute a command in a specific service container. |
 
-## Documentation
+---
 
-- **[Getting Started](docs/guides/)**: Task-oriented guides for each command
-- **[Core Concepts](docs/CORE_CONCEPTS.md)**: Understanding isolation and architecture
-- **[Recipes](docs/RECIPES.md)**: Common workflows and practical examples  
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)**: Solutions for common issues
+## 💻 Development
 
-### Command Guides
-- [`reactor run`](docs/guides/reactor-run.md) - Start AI tool sessions
-- [`reactor config`](docs/guides/reactor-config.md) - Manage project configuration
-- [`reactor sessions`](docs/guides/reactor-sessions.md) - List and manage containers
-- [`reactor diff`](docs/guides/reactor-diff.md) - Discovery mode filesystem changes
-- [`reactor accounts`](docs/guides/reactor-accounts.md) - Account management
-- [`reactor completion`](docs/guides/reactor-completion.md) - Shell completions
+This repository is a monorepo containing the source code for the `reactor` CLI and the `reactor-fabric` orchestration engine.
 
-## Common Workflows
+### Getting Started
 
-### Development Setup
-```bash
-# Python web development
-reactor run --image python -p 8000:8000
-
-# Multi-service development  
-reactor run -p 8000:8000 -p 3000:3000 -p 5432:5432
-```
-
-### Account Management
-```bash
-# Personal projects
-reactor run --account personal
-
-# Work projects
-reactor run --account work
-```
-
-### Tool Evaluation
-```bash
-# Test new AI tool safely
-reactor run --discovery-mode
-# Use the tool to trigger its setup
-exit
-reactor diff                # See what was created
-reactor sessions clean      # Clean up test containers
-```
-
-## Security
-
-- Containers run as non-root user
-- No host filesystem access except mounted state directories
-- Optional `--docker-host-integration` for Docker access (use with caution)
-
-## Development
-
-### Getting Started with Development
 ```bash
 # Clone and set up
 git clone https://github.com/dyluth/reactor.git
 cd reactor
 
-# See all available targets  
+# See all available targets and usage examples
 make
 
-# Quick development validation
-make check          # fmt + lint + test
-
-# Full CI validation (recommended before commits)
-make ci             # deps + fmt + lint + test + coverage
-
-# Build binary
-make build
-```
-
-### Build System Targets
-
-**Key Targets:**
-- `make` - Show all available targets and usage examples
-- `make ci` - 🎯 Complete CI validation (deps + fmt + lint + test + coverage)
-- `make check` - ⚡ Quick validation for development (fmt + lint + test)
-- `make build` - 🔨 Build reactor binary
-- `make test-isolated` - 🧪 Run all tests with isolation (recommended)
-
-**Development Workflow:**
-```bash
-# During development - fast feedback
+# Quick validation (fmt + lint + test)
 make check
 
-# Before committing - comprehensive validation
+# Full CI validation (recommended before commits)
 make ci
 
-# Build for testing
+# Build the reactor binary
 make build
 ```
 
-**Additional Targets:**
-- `make test-unit` - Unit tests only
-- `make test-integration` - Integration tests only  
-- `make test-coverage-isolated` - Tests with coverage report
-- `make docker-images` - Build all container images
-- `make clean` - Remove build artifacts
+### Build System
 
-### Building Container Images
-```bash
-# Build all images locally
-./scripts/build-images.sh
+The `Makefile` provides a comprehensive set of targets for development and testing.
 
-# Build and test all images
-./scripts/build-images.sh --test
-
-# Build for local development (uses local base image)
-./scripts/build-images.sh --local
-
-# Build with official tags
-./scripts/build-images.sh --official
-
-# Manual builds (from repo root)
-docker build -f images/base/Dockerfile -t reactor/base:local .
-docker build -f images/python/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/python:local .
-docker build -f images/node/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/node:local .
-docker build -f images/go/Dockerfile --build-arg BASE_IMAGE=reactor/base:local -t reactor/go:local .
-```
-
-## Contributing
-
-See [PROJECT_CHARTER.md](docs/PROJECT_CHARTER.md) for architecture and contribution guidelines.
-
-### Container Images
-- [Image Maintenance Guide](docs/IMAGE_MAINTENANCE.md) - How to maintain and update official images
-- [GitHub Actions Setup](docs/GITHUB_ACTIONS_SETUP.md) - How the automated build system works
+*   `make ci`: 🎯 Run the full CI pipeline.
+*   `make check`: ⚡ Run a quick validation suite.
+*   `make build`: 🔨 Build the `reactor` binary.
+*   `make test-isolated`: 🧪 Run all Go tests with isolation.
+*   `make docker-images`: 🐳 Build all official container images.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License.

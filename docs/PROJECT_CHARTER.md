@@ -1,9 +1,9 @@
-# **Project Charter: Reactor Suite Refactoring**
+# **Project Charter: The Reactor Ecosystem**
 
-Version: 1.0  
-Status: Final  
-Author(s): Gemini, cam  
-Date: 2025-08-23
+Version: 2.0
+Status: Active
+Author(s): Gemini, cam
+Date: 2025-08-28
 
 ## **1\. Project overview**
 
@@ -11,17 +11,17 @@ Date: 2025-08-23
 
 ### **1.1. Vision statement**
 
-To create a modular, extensible, and powerful ecosystem for AI-driven software development that is simple to use, easy to maintain, and agnostic to the underlying AI provider.
+To create a modular, extensible, and powerful ecosystem for AI-driven software development that is simple to use, easy to maintain, and agnostic to the underlying tools.
 
 ### **1.2. Mission statement**
 
-We are refactoring the `claude-reactor` project into a modular suite of tools (`Reactor`, `Reactor-Fabric`, `Reactor-Scaffold`) to provide developers with a simple, provider-agnostic containerized environment and a powerful multi-agent orchestration system, enabling both streamlined daily workflows and complex, collaborative AI tasks.
+To build the Reactor Ecosystem, a suite of tools that provide developers with a best-in-class command-line experience for Dev Containers (`reactor`) and a powerful, container-native framework for automating complex software development tasks with AI agents (`reactor-fabric`).
 
 ### **1.3. Business goals & objectives**
 
-*   **Goal 1: Increase Developer Velocity.** Provide a simple, fast, and secure environment (`Reactor`) that streamlines the day-to-day usage of AI CLI agents.
-*   **Goal 2: Automate Complex Tasks.** Enable the automation of sophisticated development workflows (e.g., feature creation, bug fixing) by orchestrating multiple specialist AI agents (`Reactor-Fabric`) to overcome single-agent context window limitations.
-*   **Goal 3: Foster Open Source Adoption.** Build a high-quality, easy-to-use toolset that attracts users and contributors from the open-source community.
+*   **Goal 1: Perfect the Local Development Workflow.** Provide a simple, fast, and powerful CLI (`reactor`) for the Dev Container standard that makes managing local development environments effortless.
+*   **Goal 2: Automate Complex Software Engineering Tasks.** Enable the automation of sophisticated, multi-step workflows by orchestrating container-native AI agents (`reactor-fabric`).
+*   **Goal 3: Foster Open Source Adoption.** Build a high-quality, easy-to-use toolset that attracts users and contributors from the Platform Engineering and DevOps communities.
 
 ## **2\. Strategic foundation**
 
@@ -30,7 +30,7 @@ We are refactoring the `claude-reactor` project into a modular suite of tools (`
 ### **2.1. Guiding principles**
 
 *   **Modularity over Monoliths:** The system will be composed of small, focused tools that do one thing well.
-*   **Simplicity and Clarity:** We will favor simple, explicit solutions over complex, "magic" ones (e.g., no project auto-detection).
+*   **Simplicity and Clarity:** We will favor simple, explicit solutions over complex, "magic" ones.
 *   **User in Control:** The user should always have explicit control over their environment and tools.
 *   **Extensibility by Design:** The architecture must be open to supporting new AI providers and tools without requiring a full rewrite.
 
@@ -60,16 +60,15 @@ We are refactoring the `claude-reactor` project into a modular suite of tools (`
 
 ### **3.2. High-level component architecture**
 
-The project is a monorepo that produces three distinct binaries:
+The project is a monorepo that produces two distinct binaries:
 
 ```mermaid
 graph TD
     subgraph Monorepo
         direction LR
         subgraph Tools
-            A[Reactor]
-            B[Reactor-Fabric]
-            C[Reactor-Scaffold]
+            A[reactor]
+            B[reactor-fabric]
         end
         subgraph Shared Code
             D[pkg/docker]
@@ -84,20 +83,18 @@ graph TD
 
     style A fill:#cde4ff
     style B fill:#cde4ff
-    style C fill:#cde4ff
 ```
 
-*   **`Reactor`:** A CLI tool for managing single, containerized developer environments.
-*   **`Reactor-Fabric`:** A standalone server for orchestrating a suite of AI agents (MCP services).
-*   **`Reactor-Scaffold`:** A CLI tool for generating new projects from templates.
+*   **`reactor`:** A CLI tool for managing the lifecycle of single development environments defined by `devcontainer.json`.
+*   **`reactor-fabric`:** A standalone server for orchestrating a suite of container-native AI agents.
 *   **`pkg/`**: Shared Go packages (e.g., Docker utilities, configuration models) used by the different tools.
 
 ### **3.3. Architectural principles**
 
 *   **Monorepo:** All tools will be developed in a single repository to simplify dependency management and code sharing.
 *   **Explicit Internal Boundaries:** Each tool will be composed of clearly defined internal layers (`cmd`, `core`, `docker`, `session`) to ensure high cohesion and low coupling.
-*   **Configuration as Code:** All project and suite configurations will be managed in simple, version-controllable YAML files.
-*   **Provider-Agnostic Design:** The `Reactor` tool will be designed to support multiple AI providers through a plugin-like configuration system.
+*   **Configuration as Code:** All environment and suite configurations will be managed in simple, version-controllable declarative files (`devcontainer.json`, `fabric.yml`).
+*   **Tooling-Agnostic by Design:** The agent model is "container-native." An agent's capabilities are defined by the tools installed in its container, not by Python functions, making it truly tool-agnostic.
 
 ### **3.4. Coding standards & conventions**
 
@@ -141,3 +138,8 @@ Development will follow a trunk-based development model. All work will be done o
     *   **Context:** The original design included "smart" auto-detection of project types.
     *   **Justification:** This adds complexity and violates the "User in Control" principle. An explicit `--image` flag is simpler and more reliable.
     *   **Impact:** The core logic of `Reactor` is simplified, requiring the user to specify their desired environment on the first run.
+
+*   **2025-08-28: Decision to Pivot to Dev Container Standard**
+    *   **Context:** The custom `.reactor.conf` system was reinventing a wheel that the industry has already standardized with `devcontainer.json`.
+    *   **Justification:** Embracing the Dev Container standard dramatically lowers the barrier to entry, leverages a massive existing ecosystem, and allows `reactor` to focus on its unique value-adds (CLI ergonomics, account isolation, multi-container orchestration).
+    *   **Impact:** The `reactor` CLI is being refactored to become a native client for `devcontainer.json`. The old configuration system is removed.

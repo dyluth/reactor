@@ -30,8 +30,8 @@ type ContainerBlueprint struct {
 	NetworkMode  string        // Network configuration
 }
 
-// NewContainerBlueprint creates a container blueprint from resolved configuration and mounts
-func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, isDiscovery bool, dockerHostIntegration bool, portMappings []PortMapping) *ContainerBlueprint {
+// NewContainerBlueprint creates a container blueprint from resolved configuration
+func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, dockerHostIntegration bool, portMappings []PortMapping) *ContainerBlueprint {
 	// Generate appropriate container name based on mode
 	var containerName string
 	if isDiscovery {
@@ -40,18 +40,24 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, 
 		containerName = GenerateContainerName(resolved.Account, resolved.ProjectRoot, resolved.ProjectHash)
 	}
 
-	// Convert mount specifications to Docker bind format (empty for discovery mode)
+	// Construct all mounts internally (empty for discovery mode)
 	dockerMounts := []string{}
 	if !isDiscovery {
-		for _, mount := range mounts {
-			// Format: "source:target:type" (e.g., "/home/user/.reactor/cam/abc123/claude:/home/claude/.claude:bind")
-			dockerMounts = append(dockerMounts, fmt.Sprintf("%s:%s:%s", mount.Source, mount.Target, mount.Type))
+		// 1. Add workspace mount first
+		dockerMounts = append(dockerMounts, formatDockerMount(resolved.ProjectRoot, "/workspace"))
+
+		// 2. Add provider credential mounts for ALL providers
+		for _, provider := range config.BuiltinProviders {
+			for _, mount := range provider.Mounts {
+				hostPath := filepath.Join(resolved.ProjectConfigDir, mount.Source)
+				dockerMounts = append(dockerMounts, formatDockerMount(hostPath, mount.Target))
+			}
 		}
 	}
 
 	// Add Docker socket mount if host integration is enabled
 	if dockerHostIntegration {
-		dockerMounts = append(dockerMounts, "/var/run/docker.sock:/var/run/docker.sock:bind")
+		dockerMounts = append(dockerMounts, formatDockerMount("/var/run/docker.sock", "/var/run/docker.sock"))
 	}
 
 	// Set up environment variables
@@ -60,12 +66,25 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, mounts []MountSpec, 
 		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 	}
 
+	// Determine container user: use RemoteUser from devcontainer.json or default to "claude"
+	user := resolved.RemoteUser
+	if user == "" {
+		user = "claude" // Default fallback for backward compatibility
+	}
+
+	// Determine container command: use DefaultCommand from reactor customizations or default to sh
+	command := []string{"/bin/sh"} // Default interactive shell (more universal than bash)
+	if resolved.DefaultCommand != "" {
+		// For defaultCommand, wrap it in a shell to handle complex commands
+		command = []string{"/bin/sh", "-c", resolved.DefaultCommand}
+	}
+
 	return &ContainerBlueprint{
 		Name:         containerName,
 		Image:        resolved.Image,
-		Command:      []string{"/bin/bash"}, // Default interactive shell
-		WorkDir:      "/workspace",          // Default to mounted project directory
-		User:         "claude",              // Default container user
+		Command:      command,
+		WorkDir:      "/workspace", // Default to mounted project directory
+		User:         user,         // Use remoteUser from devcontainer.json with fallback
 		Environment:  environment,
 		Mounts:       dockerMounts,
 		PortMappings: portMappings,
@@ -149,4 +168,21 @@ func sanitizeContainerName(name string) string {
 	}
 
 	return sanitized
+}
+
+// formatDockerMount creates a properly formatted Docker bind mount string
+// that handles paths with spaces and special characters
+func formatDockerMount(hostPath, containerPath string) string {
+	// Quote paths that contain spaces or other special characters
+	// Docker mount parsing handles quoted paths correctly
+	if needsQuoting(hostPath) || needsQuoting(containerPath) {
+		return fmt.Sprintf(`"%s:%s"`, hostPath, containerPath)
+	}
+	return fmt.Sprintf("%s:%s", hostPath, containerPath)
+}
+
+// needsQuoting checks if a path contains characters that require quoting
+func needsQuoting(path string) bool {
+	// Check for spaces and other characters that can cause parsing issues
+	return strings.ContainsAny(path, " \t\n\r\"'\\")
 }

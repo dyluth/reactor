@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestWithIsolatedHome(t *testing.T) {
@@ -186,5 +188,112 @@ func TestRobustRemoveAll_NonExistent(t *testing.T) {
 	err := RobustRemoveAll(t, nonExistentPath)
 	if err != nil {
 		t.Errorf("RobustRemoveAll should succeed on non-existent paths: %v", err)
+	}
+}
+
+func TestSetupCredentialDirectories(t *testing.T) {
+	// Create isolated home directory
+	homeDir := WithIsolatedHome(t)
+	account := "test-account"
+	projectHash := "abc123def456"
+
+	// Call function under test
+	credDirs := SetupCredentialDirectories(t, homeDir, account, projectHash)
+
+	// Verify expected credential files were created
+	expectedFiles := []string{
+		"claude_credentials.txt",
+		"claude_config.json",
+		"gemini_api_key.txt",
+		"gemini_settings.yaml",
+	}
+
+	assert.Len(t, credDirs, len(expectedFiles))
+	for _, expectedFile := range expectedFiles {
+		filePath, exists := credDirs[expectedFile]
+		assert.True(t, exists, "Expected file %s not found in credDirs", expectedFile)
+
+		// Verify file exists
+		_, err := os.Stat(filePath)
+		assert.NoError(t, err, "Credential file %s should exist", filePath)
+
+		// Verify file content
+		content, err := os.ReadFile(filePath)
+		assert.NoError(t, err)
+		assert.Contains(t, string(content), "test-", "File content should contain test prefix")
+		assert.Contains(t, string(content), account, "File content should contain account name")
+	}
+
+	// Verify directory structure
+	expectedReactorDir := filepath.Join(homeDir, ".reactor", account, projectHash)
+	info, err := os.Stat(expectedReactorDir)
+	assert.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	// Verify provider subdirectories
+	claudeDir := filepath.Join(expectedReactorDir, "claude")
+	info, err = os.Stat(claudeDir)
+	assert.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	geminiDir := filepath.Join(expectedReactorDir, "gemini")
+	info, err = os.Stat(geminiDir)
+	assert.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestSetupCredentialDirectories_DifferentAccounts(t *testing.T) {
+	homeDir := WithIsolatedHome(t)
+	account1 := "account1"
+	account2 := "account2"
+	projectHash := "samehash"
+
+	// Setup credentials for two different accounts
+	credDirs1 := SetupCredentialDirectories(t, homeDir, account1, projectHash)
+	credDirs2 := SetupCredentialDirectories(t, homeDir, account2, projectHash)
+
+	// Both should have same number of files
+	assert.Equal(t, len(credDirs1), len(credDirs2))
+
+	// But files should be in different directories
+	for key := range credDirs1 {
+		path1 := credDirs1[key]
+		path2 := credDirs2[key]
+		assert.NotEqual(t, path1, path2, "Paths should be different for different accounts")
+		assert.Contains(t, path1, account1, "Path should contain account1")
+		assert.Contains(t, path2, account2, "Path should contain account2")
+	}
+
+	// Verify content is account-specific
+	claudeFile1 := credDirs1["claude_credentials.txt"]
+	claudeFile2 := credDirs2["claude_credentials.txt"]
+
+	content1, err := os.ReadFile(claudeFile1)
+	assert.NoError(t, err)
+	content2, err := os.ReadFile(claudeFile2)
+	assert.NoError(t, err)
+
+	assert.Contains(t, string(content1), account1)
+	assert.Contains(t, string(content2), account2)
+	assert.NotEqual(t, string(content1), string(content2))
+}
+
+func TestSetupCredentialDirectories_DifferentProjects(t *testing.T) {
+	homeDir := WithIsolatedHome(t)
+	account := "same-account"
+	projectHash1 := "project1"
+	projectHash2 := "project2"
+
+	// Setup credentials for same account but different projects
+	credDirs1 := SetupCredentialDirectories(t, homeDir, account, projectHash1)
+	credDirs2 := SetupCredentialDirectories(t, homeDir, account, projectHash2)
+
+	// Files should be in different project directories
+	for key := range credDirs1 {
+		path1 := credDirs1[key]
+		path2 := credDirs2[key]
+		assert.NotEqual(t, path1, path2, "Paths should be different for different projects")
+		assert.Contains(t, path1, projectHash1, "Path should contain projectHash1")
+		assert.Contains(t, path2, projectHash2, "Path should contain projectHash2")
 	}
 }
