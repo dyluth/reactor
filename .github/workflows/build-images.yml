@@ -37,6 +37,15 @@ jobs:
       image-size: ${{ steps.size.outputs.size }}
     
     steps:
+    - name: Check if workflow should run
+      run: |
+        if [[ "${{ github.ref }}" != "refs/heads/main" && "${{ github.event_name }}" != "pull_request" ]]; then
+          echo "⚠️ Skipping image build - only runs on main branch or PRs targeting main"
+          echo "Current ref: ${{ github.ref }}"
+          echo "Event: ${{ github.event_name }}"
+          exit 1
+        fi
+        
     - name: Checkout repository
       uses: actions/checkout@v4
 
