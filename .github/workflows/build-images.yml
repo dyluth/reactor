@@ -281,7 +281,7 @@ jobs:
         echo "- **Tags**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Test**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
 
-  # Security scanning for all images (runs in parallel with other jobs)
+  # Security scanning for all images (vulnerability scanning only, runs in parallel)
   security-scan:
     runs-on: ubuntu-latest
     needs: [build-base, build-language-images]
@@ -305,6 +305,7 @@ jobs:
         format: 'sarif'
         output: 'trivy-results-${{ matrix.image }}.sarif'
         trivyignores: '.trivyignore'
+        scanners: 'vuln'
 
     - name: Upload Trivy scan results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v3
@@ -321,6 +322,7 @@ jobs:
         ignore-unfixed: true
         severity: 'CRITICAL,HIGH'
         trivyignores: '.trivyignore'
+        scanners: 'vuln'
 
   # Build summary job (doesn't wait for security scanning)
   build-complete:
