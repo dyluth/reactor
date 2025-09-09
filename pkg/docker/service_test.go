@@ -2100,7 +2100,7 @@ func TestBuildImage_StreamOutputError(t *testing.T) {
 	err = service.BuildImage(ctx, spec, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "build failed")
-	
+
 	// Give time for any background goroutines to complete before asserting expectations
 	time.Sleep(10 * time.Millisecond)
 	mockClient.AssertExpectations(t)
