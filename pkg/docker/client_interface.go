@@ -5,7 +5,9 @@ import (
 	"io"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -22,7 +24,7 @@ type DockerClient interface {
 	Close() error
 
 	// Core container lifecycle operations - CRITICAL PATH
-	ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error)
+	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *ocispec.Platform, containerName string) (container.CreateResponse, error)
 	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
 	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
@@ -31,13 +33,13 @@ type DockerClient interface {
 	// Session and interaction operations
 	ContainerAttach(ctx context.Context, containerID string, options container.AttachOptions) (types.HijackedResponse, error)
 	ContainerWait(ctx context.Context, containerID string, condition container.WaitCondition) (<-chan container.WaitResponse, <-chan error)
-	ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error)
+	ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error)
 
 	// Exec operations for session management
-	ContainerExecCreate(ctx context.Context, containerID string, options types.ExecConfig) (types.IDResponse, error)
-	ContainerExecAttach(ctx context.Context, execID string, config types.ExecStartCheck) (types.HijackedResponse, error)
-	ContainerExecStart(ctx context.Context, execID string, config types.ExecStartCheck) error
-	ContainerExecInspect(ctx context.Context, execID string) (types.ContainerExecInspect, error)
+	ContainerExecCreate(ctx context.Context, containerID string, options container.ExecOptions) (container.ExecCreateResponse, error)
+	ContainerExecAttach(ctx context.Context, execID string, config container.ExecStartOptions) (types.HijackedResponse, error)
+	ContainerExecStart(ctx context.Context, execID string, config container.ExecStartOptions) error
+	ContainerExecInspect(ctx context.Context, execID string) (container.ExecInspect, error)
 
 	// Additional operations for discovery and debugging
 	ContainerDiff(ctx context.Context, containerID string) ([]container.FilesystemChange, error)
@@ -46,9 +48,9 @@ type DockerClient interface {
 	ContainerResize(ctx context.Context, containerID string, options container.ResizeOptions) error
 
 	// Image management
-	ImagePull(ctx context.Context, refStr string, options types.ImagePullOptions) (io.ReadCloser, error)
-	ImageBuild(ctx context.Context, buildContext io.Reader, options types.ImageBuildOptions) (types.ImageBuildResponse, error)
-	ImageList(ctx context.Context, options types.ImageListOptions) ([]types.ImageSummary, error) //nolint:staticcheck // image.Summary not available in this Docker client version
+	ImagePull(ctx context.Context, refStr string, options image.PullOptions) (io.ReadCloser, error)
+	ImageBuild(ctx context.Context, buildContext io.Reader, options build.ImageBuildOptions) (build.ImageBuildResponse, error)
+	ImageList(ctx context.Context, options image.ListOptions) ([]image.Summary, error)
 }
 
 // Ensure that *client.Client implements our DockerClient interface at compile time

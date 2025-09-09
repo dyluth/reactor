@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/dyluth/reactor/pkg/config"
@@ -2091,7 +2090,7 @@ func checkWorkspaceNotRunning(workspaceHash string, servicesToStart []string) er
 }
 
 // getContainerNames extracts container names from a list of containers
-func getContainerNames(containers []types.Container) []string {
+func getContainerNames(containers []container.Summary) []string {
 	var names []string
 	for _, container := range containers {
 		// Container names have a leading slash, remove it
