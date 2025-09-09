@@ -35,6 +35,7 @@ jobs:
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-size: ${{ steps.size.outputs.size }}
+      base-changed: ${{ steps.changes.outputs.base }}
     
     steps:
     - name: Check if workflow should run
@@ -48,6 +49,31 @@ jobs:
         
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Check for image changes
+      id: changes
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          base:
+            - 'images/base/**'
+            - '.github/workflows/build-images.yml'
+          python:
+            - 'images/python/**'
+            - 'images/base/**'
+          go:
+            - 'images/go/**'
+            - 'images/base/**'
+          node:
+            - 'images/node/**'
+            - 'images/base/**'
+
+    - name: Skip build if no changes
+      if: steps.changes.outputs.base != 'true' && github.event_name == 'pull_request'
+      run: |
+        echo "🚀 No changes detected in base image files - skipping build"
+        echo "Changes detected: ${{ steps.changes.outputs.base }}"
+        exit 0
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -73,18 +99,22 @@ jobs:
 
     - name: Build and push image
       id: build
+      if: steps.changes.outputs.base == 'true' || github.event_name != 'pull_request'
       uses: docker/build-push-action@v5
       with:
         context: .
         file: images/base/Dockerfile
-        platforms: linux/amd64,linux/arm64
+        platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: |
+          type=gha,scope=base
+          type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest
+        cache-to: type=gha,mode=max,scope=base
 
     - name: Test image functionality
+      if: steps.build.conclusion == 'success'
       run: |
         # Pull the built image for testing
         docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest || \
@@ -99,6 +129,7 @@ jobs:
 
     - name: Check image size
       id: size
+      if: steps.build.conclusion == 'success'
       run: |
         # Get image size
         SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/base:latest --format='{{.Size}}')
@@ -126,6 +157,7 @@ jobs:
   build-language-images:
     runs-on: ubuntu-latest
     needs: build-base
+    if: always() && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
     permissions:
       contents: read
       packages: write
@@ -145,6 +177,31 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Check for image changes
+      id: changes
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          base:
+            - 'images/base/**'
+            - '.github/workflows/build-images.yml'
+          python:
+            - 'images/python/**'
+            - 'images/base/**'
+          go:
+            - 'images/go/**'
+            - 'images/base/**'
+          node:
+            - 'images/node/**'
+            - 'images/base/**'
+
+    - name: Skip build if no changes
+      if: steps.changes.outputs[matrix.image] != 'true' && github.event_name == 'pull_request'
+      run: |
+        echo "🚀 No changes detected in ${{ matrix.image }} image files - skipping build"
+        echo "Changes detected: ${{ steps.changes.outputs[matrix.image] }}"
+        exit 0
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -170,18 +227,22 @@ jobs:
 
     - name: Build and push image
       id: build
+      if: steps.changes.outputs[matrix.image] == 'true' || github.event_name != 'pull_request'
       uses: docker/build-push-action@v5
       with:
         context: .
         file: images/${{ matrix.image }}/Dockerfile
-        platforms: linux/amd64,linux/arm64
+        platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: |
+          type=gha,scope=${{ matrix.image }}
+          type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
+        cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
     - name: Test image functionality
+      if: steps.build.conclusion == 'success'
       run: |
         # Pull the built image for testing
         docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest || \
@@ -196,6 +257,7 @@ jobs:
 
     - name: Check image size
       id: size
+      if: steps.build.conclusion == 'success'
       run: |
         # Get image size
         SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest --format='{{.Size}}')
@@ -219,11 +281,11 @@ jobs:
         echo "- **Tags**: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Test**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
 
-  # Security scanning for all images
+  # Security scanning for all images (runs in parallel with other jobs)
   security-scan:
     runs-on: ubuntu-latest
     needs: [build-base, build-language-images]
-    if: github.event_name != 'pull_request'
+    if: always() && github.event_name != 'pull_request' && (needs.build-base.result == 'success' || needs.build-language-images.result == 'success')
     permissions:
       contents: read
       security-events: write
@@ -260,10 +322,10 @@ jobs:
         severity: 'CRITICAL,HIGH'
         trivyignores: '.trivyignore'
 
-  # Build summary job
+  # Build summary job (doesn't wait for security scanning)
   build-complete:
     runs-on: ubuntu-latest
-    needs: [build-base, build-language-images, security-scan]
+    needs: [build-base, build-language-images]
     if: always()
     
     steps:
@@ -271,10 +333,23 @@ jobs:
       run: |
         echo "# 🚀 Reactor Images Build Complete" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "All official Reactor images have been built and tested:" >> $GITHUB_STEP_SUMMARY
+        echo "## Build Optimizations Active:" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚡ **Conditional builds**: Only changed images are rebuilt" >> $GITHUB_STEP_SUMMARY
+        echo "- 🏗️ **Platform optimization**: PRs build AMD64 only, releases build both platforms" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 **Enhanced caching**: Registry + GitHub Actions cache for faster rebuilds" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔒 **Parallel security**: Vulnerability scans run in parallel, not blocking builds" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Available Images:" >> $GITHUB_STEP_SUMMARY
         echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/base\`" >> $GITHUB_STEP_SUMMARY
         echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/python\`" >> $GITHUB_STEP_SUMMARY
         echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/node\`" >> $GITHUB_STEP_SUMMARY
         echo "- \`ghcr.io/${{ github.repository_owner }}/reactor/go\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Images are available for both \`linux/amd64\` and \`linux/arm64\` platforms." >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          PLATFORMS="\`linux/amd64\`"
+        else
+          PLATFORMS="\`linux/amd64\`, \`linux/arm64\`"
+        fi
+        echo "📱 **Platforms**: $PLATFORMS" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🔒 Security scanning continues in background and reports to GitHub Security tab." >> $GITHUB_STEP_SUMMARY
