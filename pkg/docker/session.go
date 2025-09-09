@@ -9,7 +9,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/moby/term"
 )
@@ -154,7 +153,7 @@ func (s *Service) AttachInteractiveSession(ctx context.Context, containerID stri
 	isTerminal := term.IsTerminal(os.Stdin.Fd())
 
 	// Create exec instance for interactive shell
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
@@ -168,7 +167,7 @@ func (s *Service) AttachInteractiveSession(ctx context.Context, containerID stri
 	}
 
 	// Attach to the exec instance
-	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{
+	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{
 		Detach: false,
 		Tty:    isTerminal,
 	})
@@ -190,7 +189,7 @@ func (s *Service) AttachInteractiveSession(ctx context.Context, containerID stri
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err := s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{
+		err := s.client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{
 			Detach: false,
 			Tty:    isTerminal,
 		})

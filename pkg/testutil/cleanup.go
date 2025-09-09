@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 )
 
@@ -101,7 +101,7 @@ func forceRemoveAll(t *testing.T, path string) error {
 	if os.Getenv("REACTOR_VERBOSE_CLEANUP") != "" {
 		t.Logf("Ensuring alpine image is available for cleanup...")
 	}
-	pullReader, err := dockerClient.ImagePull(ctx, "alpine:latest", types.ImagePullOptions{})
+	pullReader, err := dockerClient.ImagePull(ctx, "alpine:latest", image.PullOptions{})
 	if err != nil {
 		t.Fatalf("Failed to pull alpine image for cleanup: %v", err)
 	}

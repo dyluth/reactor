@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
@@ -487,7 +488,7 @@ func (s *Service) ImageExists(ctx context.Context, imageName string) (bool, erro
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	images, err := s.client.ImageList(ctx, types.ImageListOptions{})
+	images, err := s.client.ImageList(ctx, image.ListOptions{})
 	if err != nil {
 		return false, fmt.Errorf("failed to list images: %w", err)
 	}
@@ -541,7 +542,7 @@ func (s *Service) BuildImage(ctx context.Context, spec BuildSpec, forceRebuild b
 	defer func() { _ = buildContext.Close() }()
 
 	// Build the image
-	buildOptions := types.ImageBuildOptions{
+	buildOptions := build.ImageBuildOptions{
 		Context:    buildContext,
 		Dockerfile: spec.Dockerfile,
 		Tags:       []string{spec.ImageName},
@@ -715,7 +716,7 @@ func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID stri
 	fmt.Printf("Executing postCreateCommand: %v\n", cmdArray)
 
 	// Create exec instance for postCreateCommand
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmdArray,
@@ -727,12 +728,12 @@ func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID stri
 	}
 
 	// Start the exec instance
-	if err := s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{}); err != nil {
+	if err := s.client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{}); err != nil {
 		return fmt.Errorf("failed to start postCreateCommand execution: %w", err)
 	}
 
 	// Attach to get output
-	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{})
+	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to attach to postCreateCommand execution: %w", err)
 	}
@@ -779,7 +780,7 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 	}
 
 	// Create exec instance with interactive settings
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		AttachStdin:  true,
@@ -793,7 +794,7 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 	}
 
 	// Attach to the exec instance for interactive I/O
-	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, types.ExecStartCheck{
+	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{
 		Tty: true,
 	})
 	if err != nil {
@@ -802,7 +803,7 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 	defer attachResp.Close()
 
 	// Start the exec instance
-	if err := s.client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{
+	if err := s.client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{
 		Tty: true,
 	}); err != nil {
 		return fmt.Errorf("failed to start command execution: %w", err)

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/dyluth/reactor/pkg/config"
@@ -414,7 +413,7 @@ func TestWorkspaceExecBasicFunctionality(t *testing.T) {
 	command := []string{"echo", "hello from workspace exec"}
 
 	// Create exec config for simple command (not interactive)
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          command,
@@ -424,7 +423,7 @@ func TestWorkspaceExecBasicFunctionality(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start the exec
-	err = client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{})
+	err = client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{})
 	require.NoError(t, err)
 
 	// Wait for completion and check exit code
@@ -564,7 +563,7 @@ func TestWorkspaceFullLifecycleEndToEnd(t *testing.T) {
 	require.True(t, execContainer.State == "running", "Container should be running for exec test")
 
 	// Test simple command execution
-	execConfig := types.ExecConfig{
+	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          []string{"echo", "workspace-exec-test"},
@@ -573,7 +572,7 @@ func TestWorkspaceFullLifecycleEndToEnd(t *testing.T) {
 	execResp, err := client.ContainerExecCreate(ctx, execContainer.ID, execConfig)
 	require.NoError(t, err, "Failed to create exec")
 
-	err = client.ContainerExecStart(ctx, execResp.ID, types.ExecStartCheck{})
+	err = client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{})
 	require.NoError(t, err, "Failed to start exec")
 
 	// Wait for completion
