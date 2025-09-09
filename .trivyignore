@@ -4,22 +4,14 @@
 # These are not actual secrets but test data in third-party packages
 
 # gosec test data - fake GCP service account patterns
-/root/go/pkg/mod/github.com/securego/gosec/**
-**/gosec/**/rules/hardcoded_credentials.go
+/root/go/pkg/mod/github.com/securego/gosec/v2@v2.21.2/rules/hardcoded_credentials.go
 
-# afero test data - fake GCS service account for testing  
-/root/go/pkg/mod/github.com/spf13/afero/**
-**/afero/**/gcs-fake-service-account.json
+# afero test data - fake GCS service account for testing
+/root/go/pkg/mod/github.com/spf13/afero@v1.11.0/gcsfs/gcs-fake-service-account.json
 
-# Generic patterns for Go module test data
-**/go/pkg/mod/**/fake-service-account.json
-**/go/pkg/mod/**/test**
-**/go/pkg/mod/**/example**
-
-# Ignore by secret type (these are known test/fake credentials)
-secret:gcp-service-account
-secret:private-key
-
-# Alternative patterns for the specific files causing issues
+# Alternative patterns for the specific files causing issues (filename matching)
 hardcoded_credentials.go
 gcs-fake-service-account.json
+
+# Local development files with secrets (should not be in production)
+.env

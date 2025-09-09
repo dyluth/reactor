@@ -69,7 +69,7 @@ test-coverage-isolated:
 	go tool cover -html=coverage.out -o coverage.html
 
 ## Comprehensive CI check - runs all validation needed for production confidence
-ci: deps fmt lint test-coverage-isolated
+ci: deps fmt lint test-coverage-isolated security-scan
 	@echo "✅ All CI checks passed! Ready for production."
 
 ## Quick development check - faster validation during development  
@@ -149,6 +149,52 @@ docker-clean:
 	@docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}" | grep "reactor-" | awk '{print $$3}' | xargs -r docker rmi -f || true
 	@echo "Docker cleanup complete."
 
+## Run security scans
+security-scan: install-trivy security-scan-code security-scan-images
+	@echo "✅ Security scans completed"
+
+## Install Trivy security scanner
+install-trivy:
+	@if ! command -v trivy >/dev/null 2>&1; then \
+		echo "Installing Trivy security scanner..."; \
+		if [[ "$(shell uname)" == "Darwin" ]]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install trivy; \
+			else \
+				echo "Please install Homebrew or Trivy manually: https://aquasecurity.github.io/trivy/"; \
+				exit 1; \
+			fi; \
+		elif [[ "$(shell uname)" == "Linux" ]]; then \
+			curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin; \
+		else \
+			echo "Please install Trivy manually: https://aquasecurity.github.io/trivy/"; \
+			exit 1; \
+		fi; \
+	fi
+
+## Scan source code for vulnerabilities and secrets
+security-scan-code:
+	@echo "🔍 Scanning source code for vulnerabilities and secrets..."
+	trivy fs --scanners vuln,secret --ignorefile .trivyignore --format table --severity HIGH,CRITICAL .
+	@echo "✅ Source code security scan completed"
+
+## Scan Docker images for vulnerabilities (requires images to be built)
+security-scan-images:
+	@echo "🔍 Scanning Docker images for vulnerabilities..."
+	@if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "ghcr.io/dyluth/reactor"; then \
+		for image in base go python node; do \
+			if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "ghcr.io/dyluth/reactor/$$image:latest"; then \
+				echo "Scanning ghcr.io/dyluth/reactor/$$image:latest..."; \
+				trivy image --ignorefile .trivyignore --format table --severity HIGH,CRITICAL ghcr.io/dyluth/reactor/$$image:latest; \
+			else \
+				echo "⚠️ Image ghcr.io/dyluth/reactor/$$image:latest not found, skipping..."; \
+			fi; \
+		done; \
+	else \
+		echo "⚠️ No reactor images found. Run 'make docker-images' first to scan images."; \
+	fi
+	@echo "✅ Docker image security scans completed"
+
 ## Show available make targets and usage examples
 help:
 	@echo "🚀 Reactor Build System"
@@ -158,17 +204,18 @@ help:
 	@echo "  make                    Show this help (default)"
 	@echo ""
 	@echo "KEY TARGETS:"
-	@echo "  ci                      🎯 Full CI validation (deps + fmt + lint + test + coverage)"
+	@echo "  ci                      🎯 Full CI validation (deps + fmt + lint + test + coverage + security)"
 	@echo "  check                   ⚡ Quick dev validation (fmt + lint + test)"
 	@echo "  build                   🔨 Build reactor binary"
 	@echo "  test-isolated           🧪 Run all tests with isolation (recommended)"
+	@echo "  security-scan           🔒 Run security vulnerability and secret scans"
 	@echo ""
 	@echo "ALL TARGETS:"
 	@grep -E '^##' $(MAKEFILE_LIST) | sed 's/^## /  /' | sort
 	@echo ""
 	@echo "EXAMPLES:"
-	@echo "  make ci                 # Run full CI pipeline locally"  
+	@echo "  make ci                 # Run full CI pipeline locally (includes security)"
 	@echo "  make check              # Quick validation during development"
 	@echo "  make build              # Build binary for current platform"
-	@echo "  make build-all          # Cross-compile for all platforms"
+	@echo "  make security-scan      # Run security scans on code and images"
 	@echo "  make docker-images      # Build all Docker environment images"
