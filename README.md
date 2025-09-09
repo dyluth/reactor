@@ -6,11 +6,50 @@
 
 ---
 
+## 📦 Installation
+
+### Option 1: Download Pre-built Binary (Recommended)
+
+Download the latest release for your platform:
+
+```bash
+# Linux AMD64
+curl -L https://github.com/dyluth/reactor/releases/latest/download/reactor-linux-amd64 -o reactor
+chmod +x reactor
+sudo mv reactor /usr/local/bin/
+
+# Linux ARM64
+curl -L https://github.com/dyluth/reactor/releases/latest/download/reactor-linux-arm64 -o reactor
+chmod +x reactor
+sudo mv reactor /usr/local/bin/
+
+# macOS Intel
+curl -L https://github.com/dyluth/reactor/releases/latest/download/reactor-darwin-amd64 -o reactor
+chmod +x reactor
+sudo mv reactor /usr/local/bin/
+
+# macOS Apple Silicon
+curl -L https://github.com/dyluth/reactor/releases/latest/download/reactor-darwin-arm64 -o reactor
+chmod +x reactor
+sudo mv reactor /usr/local/bin/
+```
+
+### Option 2: Build from Source
+
+**Prerequisites:** `go` 1.22+ must be installed.
+
+```bash
+git clone https://github.com/dyluth/reactor.git
+cd reactor
+make build
+sudo cp ./build/reactor /usr/local/bin/
+```
+
 ## ⚡ Quickstart
 
-Get from an empty directory to a running, containerized Go development environment in 3 commands.
+Get from an empty directory to a running, containerized Go development environment in 4 commands.
 
-**Prerequisites:** `docker`, `git`, and `go` must be installed.
+**Prerequisites:** `docker` must be installed.
 
 ```bash
 # 1. Create a new project directory
@@ -22,6 +61,9 @@ reactor init --template go
 
 # 3. Build and start your new dev environment!
 reactor up
+
+# 4. You're now inside the container! Try the sample app:
+go run main.go
 ```
 
 After `reactor up` completes, you will be inside a containerized shell. Your project directory is mounted at `/workspace`, and you can start coding.
