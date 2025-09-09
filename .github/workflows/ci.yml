@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        package: [config, core, docker]
+        package: [config, core, docker, testutil, workspace]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
