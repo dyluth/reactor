@@ -56,14 +56,15 @@ Get from an empty directory to a running, containerized Go development environme
 mkdir my-go-app && cd my-go-app
 
 # 2. Initialize a sample Go project and dev container
-# This creates a devcontainer.json, a Dockerfile, and a "Hello World" main.go
-reactor init --template go
+# This creates a devcontainer.json and sample code files
+reactor config init --template go
 
 # 3. Build and start your new dev environment!
 reactor up
 
-# 4. You're now inside the container! Try the sample app:
+# 4. You're now inside the container! Try the sample web server:
 go run main.go
+# Visit http://localhost:8080 to see "Hello, World from your Reactor Go environment!"
 ```
 
 After `reactor up` completes, you will be inside a containerized shell. Your project directory is mounted at `/workspace`, and you can start coding.
@@ -87,8 +88,9 @@ These commands operate on the `devcontainer.json` in the current directory.
 | `reactor down` | Stop and remove your dev container. |
 | `reactor build` | Build or rebuild the dev container image without starting it. |
 | `reactor exec -- <cmd>` | Execute a command inside the running dev container. |
-| `reactor list` | List all `reactor`-managed dev containers on your system. |
-| `reactor init` | Create a new dev container configuration in the current directory. |
+| `reactor sessions list` | List all `reactor`-managed dev containers on your system. |
+| `reactor config init` | Create a new dev container configuration in the current directory. |
+| `reactor config init --template <name>` | Generate a complete project from template (go, python, node). |
 
 ### Workspace Commands
 
