@@ -2147,7 +2147,7 @@ func TestExecuteInteractiveCommand_Success(t *testing.T) {
 		ExitCode: 0,
 	}, nil)
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.NoError(t, err)
 	mockClient.AssertExpectations(t)
 }
@@ -2159,7 +2159,7 @@ func TestExecuteInteractiveCommand_EmptyCommand(t *testing.T) {
 	containerID := "test-container"
 	command := []string{}
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "command array cannot be empty")
 
@@ -2181,7 +2181,7 @@ func TestExecuteInteractiveCommand_ContainerNotRunning(t *testing.T) {
 		},
 	}, nil)
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "container test-container is not running")
 	mockClient.AssertExpectations(t)
@@ -2197,7 +2197,7 @@ func TestExecuteInteractiveCommand_ContainerInspectFails(t *testing.T) {
 	// Mock container inspect failure
 	mockClient.On("ContainerInspect", ctx, containerID).Return(container.InspectResponse{}, errors.New("container not found"))
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to inspect container")
 	mockClient.AssertExpectations(t)
@@ -2220,7 +2220,7 @@ func TestExecuteInteractiveCommand_ExecCreateFails(t *testing.T) {
 	// Mock exec create failure
 	mockClient.On("ContainerExecCreate", ctx, containerID, mock.Anything).Return(container.ExecCreateResponse{}, errors.New("exec create failed"))
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create exec instance")
 	mockClient.AssertExpectations(t)
@@ -2247,7 +2247,7 @@ func TestExecuteInteractiveCommand_ExecAttachFails(t *testing.T) {
 	// Mock exec attach failure
 	mockClient.On("ContainerExecAttach", ctx, "exec-123", mock.Anything).Return(types.HijackedResponse{}, errors.New("attach failed"))
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to attach to exec instance")
 	mockClient.AssertExpectations(t)
@@ -2278,7 +2278,7 @@ func TestExecuteInteractiveCommand_ExecStartFails(t *testing.T) {
 	// Mock exec start failure
 	mockClient.On("ContainerExecStart", ctx, "exec-123", mock.Anything).Return(errors.New("start failed"))
 
-	err := service.ExecuteInteractiveCommand(ctx, containerID, command)
+	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to start command execution")
 	mockClient.AssertExpectations(t)

@@ -16,8 +16,11 @@ import (
 	"github.com/dyluth/reactor/pkg/docker"
 	"github.com/dyluth/reactor/pkg/orchestrator"
 	"github.com/dyluth/reactor/pkg/templates"
+	"github.com/dyluth/reactor/pkg/ui"
 	"github.com/dyluth/reactor/pkg/workspace"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
+	"github.com/tidwall/sjson"
 )
 
 // Build-time variables injected via linker flags
@@ -121,9 +124,12 @@ func newExecCmd() *cobra.Command {
 The container must already be running (started with 'reactor up'). This is
 useful for running tests, builds, or other commands inside the container.
 
+IMPORTANT: Use '--' to separate reactor flags from command flags.
+
 Examples:
+  reactor exec -- ls -la /tmp             # Run ls with flags (note the --)
   reactor exec npm test                    # Run npm test inside container
-  reactor exec -- ls -la                  # Run ls command (use -- for flags)
+  reactor exec -- python -c "print('hello')"  # Run Python with flags
 
 For more details, see the full documentation.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -211,6 +217,13 @@ For more details, see the full documentation.`,
 		Long:  "Set the active account for the current project",
 		Args:  cobra.ExactArgs(1),
 		RunE:  accountsSetHandler,
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "clean",
+		Short: "Clean orphaned account configurations",
+		Long:  "Remove account configurations for projects that no longer exist on disk",
+		RunE:  accountsCleanHandler,
 	})
 
 	return cmd
@@ -456,7 +469,9 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Attaching to container session...\n")
 	}
 
-	if err := dockerService.AttachInteractiveSession(ctx, containerID); err != nil {
+	// Use ExecuteInteractiveCommand with default shell for interactive session
+	defaultShell := []string{"/bin/sh"}
+	if err := dockerService.ExecuteInteractiveCommand(ctx, containerID, defaultShell, true); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}
 
@@ -526,7 +541,7 @@ func diffCmdHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	if containerInfo.Status == docker.StatusNotFound {
-		return fmt.Errorf("container %s not found. Run discovery mode first: reactor run --discovery-mode", containerName)
+		return fmt.Errorf("container %s not found. Run discovery mode first: reactor up --discovery-mode", containerName)
 	}
 
 	// Get container diff
@@ -699,6 +714,11 @@ func accountsSetHandler(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func accountsCleanHandler(cmd *cobra.Command, args []string) error {
+	configService := config.NewService()
+	return configService.CleanAccounts()
+}
+
 func configShowHandler(cmd *cobra.Command, args []string) error {
 	configService := config.NewService()
 	return configService.ShowConfiguration()
@@ -706,42 +726,13 @@ func configShowHandler(cmd *cobra.Command, args []string) error {
 
 func configGetHandler(cmd *cobra.Command, args []string) error {
 	key := args[0]
-	configService := config.NewService()
 
-	// Try to resolve configuration to show current values
-	resolved, err := configService.ResolveConfiguration()
-	if err != nil {
-		return err
+	// Check if key is supported
+	if key != "account" && key != "defaultCommand" {
+		return fmt.Errorf("unsupported configuration key '%s'. Supported keys: account, defaultCommand", key)
 	}
 
-	switch key {
-	case "account":
-		fmt.Printf("%s\n", resolved.Account)
-	case "image":
-		fmt.Printf("%s\n", resolved.Image)
-	default:
-		// Find the devcontainer.json file to show where to check
-		configPath, found, findErr := config.FindDevContainerFile(".")
-		if findErr != nil {
-			return fmt.Errorf("error finding devcontainer.json: %w", findErr)
-		}
-		if !found {
-			return fmt.Errorf("no devcontainer.json found")
-		}
-
-		fmt.Printf("For configuration key '%s', check your devcontainer.json file:\n", key)
-		fmt.Printf("  %s\n", configPath)
-		fmt.Printf("See https://containers.dev/implementors/json_reference/ for available options.\n")
-	}
-
-	return nil
-}
-
-func configSetHandler(cmd *cobra.Command, args []string) error {
-	key := args[0]
-	value := args[1]
-
-	// Find the devcontainer.json file to show where to edit
+	// Find the devcontainer.json file
 	configPath, found, err := config.FindDevContainerFile(".")
 	if err != nil {
 		return fmt.Errorf("error finding devcontainer.json: %w", err)
@@ -750,31 +741,65 @@ func configSetHandler(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no devcontainer.json found. Run 'reactor init' to create one")
 	}
 
-	switch key {
-	case "account":
-		fmt.Printf("To set the account, edit the 'customizations.reactor.account' field in:\n")
-		fmt.Printf("  %s\n\n", configPath)
-		fmt.Printf("Example:\n")
-		fmt.Printf("{\n")
-		fmt.Printf("  \"customizations\": {\n")
-		fmt.Printf("    \"reactor\": {\n")
-		fmt.Printf("      \"account\": \"%s\"\n", value)
-		fmt.Printf("    }\n")
-		fmt.Printf("  }\n")
-		fmt.Printf("}\n")
-	case "image":
-		fmt.Printf("To set the image, edit the 'image' field in:\n")
-		fmt.Printf("  %s\n\n", configPath)
-		fmt.Printf("Example:\n")
-		fmt.Printf("{\n")
-		fmt.Printf("  \"image\": \"%s\"\n", value)
-		fmt.Printf("}\n")
-	default:
-		fmt.Printf("To set '%s', edit your devcontainer.json file:\n", key)
-		fmt.Printf("  %s\n", configPath)
-		fmt.Printf("See https://containers.dev/implementors/json_reference/ for available options.\n")
+	// Load and parse the devcontainer.json file
+	devcontainerConfig, err := config.LoadDevContainerConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load devcontainer.json: %w", err)
 	}
 
+	// Extract value from customizations.reactor block
+	var value string
+	if devcontainerConfig.Customizations != nil && devcontainerConfig.Customizations.Reactor != nil {
+		switch key {
+		case "account":
+			value = devcontainerConfig.Customizations.Reactor.Account
+		case "defaultCommand":
+			value = devcontainerConfig.Customizations.Reactor.DefaultCommand
+		}
+	}
+
+	// Print value (empty string if not set, as per spec)
+	fmt.Printf("%s\n", value)
+	return nil
+}
+
+func configSetHandler(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	value := args[1]
+
+	// Check if key is supported
+	if key != "account" && key != "defaultCommand" {
+		return fmt.Errorf("unsupported configuration key '%s'. Supported keys: account, defaultCommand", key)
+	}
+
+	// Find the devcontainer.json file
+	configPath, found, err := config.FindDevContainerFile(".")
+	if err != nil {
+		return fmt.Errorf("error finding devcontainer.json: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("no devcontainer.json found. Run 'reactor init' to create one")
+	}
+
+	// Read the current file content
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to read devcontainer.json: %w", err)
+	}
+
+	// Use sjson to update the file while preserving formatting
+	jsonPath := fmt.Sprintf("customizations.reactor.%s", key)
+	updatedData, err := sjson.Set(string(data), jsonPath, value)
+	if err != nil {
+		return fmt.Errorf("failed to update configuration: %w", err)
+	}
+
+	// Write the updated content back
+	if err := os.WriteFile(configPath, []byte(updatedData), 0644); err != nil {
+		return fmt.Errorf("failed to write devcontainer.json: %w", err)
+	}
+
+	fmt.Printf("Successfully updated %s to '%s' in %s\n", key, value, configPath)
 	return nil
 }
 
@@ -855,41 +880,38 @@ func sessionsListHandler(cmd *cobra.Command, args []string) error {
 
 	if len(containers) == 0 {
 		fmt.Println("No reactor containers found.")
-		fmt.Println("Run 'reactor run' to create a new container session.")
+		fmt.Println("Run 'reactor up' to create a new container session.")
 		return nil
 	}
 
-	// Display containers in a table format
-	fmt.Printf("%-35s %-8s %-25s %-10s\n", "CONTAINER NAME", "STATUS", "IMAGE", "UPTIME")
-	fmt.Printf("%-35s %-8s %-25s %-10s\n",
-		strings.Repeat("-", 35),
-		strings.Repeat("-", 8),
-		strings.Repeat("-", 25),
-		strings.Repeat("-", 10))
+	// Display containers using standardized table renderer
+	table := ui.NewTableRenderer([]string{"NAME", "STATUS", "IMAGE", "PROJECT PATH"})
 
 	for _, container := range containers {
 		status := "unknown"
 		switch container.Status {
 		case docker.StatusRunning:
-			status = "running"
+			status = ui.SuccessColor.Sprint("running")
 		case docker.StatusStopped:
-			status = "stopped"
+			status = ui.WarningColor.Sprint("stopped")
 		case docker.StatusNotFound:
-			status = "missing"
+			status = ui.ErrorColor.Sprint("missing")
 		}
 
 		// Truncate image name if too long
 		image := container.Image
-		if len(image) > 25 {
-			image = image[:22] + "..."
+		if len(image) > 30 {
+			image = image[:27] + "..."
 		}
 
-		// For now, show "-" for uptime since we don't have that info easily available
-		// Could be enhanced to calculate from container inspection
-		uptime := "-"
+		// For project path, we'll show a placeholder for now
+		// This could be enhanced to show actual project paths
+		projectPath := "-"
 
-		fmt.Printf("%-35s %-8s %-25s %-10s\n", container.Name, status, image, uptime)
+		table.AddRow(container.Name, status, image, projectPath)
 	}
+
+	table.Render()
 
 	fmt.Printf("\nFound %d reactor container(s).\n", len(containers))
 	fmt.Println("Use 'reactor sessions attach <container-name>' to connect to a container.")
@@ -939,7 +961,7 @@ func sessionsAttachHandler(cmd *cobra.Command, args []string) error {
 		}
 
 		if containerInfo == nil {
-			return fmt.Errorf("no container found for current project. Run 'reactor run' to create one")
+			return fmt.Errorf("no container found for current project. Run 'reactor up' to create one")
 		}
 
 		containerName = containerInfo.Name
@@ -970,7 +992,9 @@ func sessionsAttachHandler(cmd *cobra.Command, args []string) error {
 
 	// Attach to the container
 	fmt.Printf("Attaching to container: %s\n", containerName)
-	if err := dockerService.AttachInteractiveSession(ctx, containerInfo.ID); err != nil {
+	// Use ExecuteInteractiveCommand with default shell for interactive session
+	defaultShell := []string{"/bin/sh"}
+	if err := dockerService.ExecuteInteractiveCommand(ctx, containerInfo.ID, defaultShell, true); err != nil {
 		return fmt.Errorf("failed to attach to container: %w", err)
 	}
 
@@ -1296,13 +1320,8 @@ func workspaceListHandler(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", workspacePath)
 	fmt.Printf("Services: %d\n\n", len(ws.Services))
 
-	// Display header
-	fmt.Printf("%-15s %-30s %-15s %-10s\n", "SERVICE", "PATH", "ACCOUNT", "STATUS")
-	fmt.Printf("%-15s %-30s %-15s %-10s\n",
-		strings.Repeat("-", 15),
-		strings.Repeat("-", 30),
-		strings.Repeat("-", 15),
-		strings.Repeat("-", 10))
+	// Create standardized table renderer
+	table := ui.NewTableRenderer([]string{"SERVICE", "ACCOUNT", "STATUS", "IMAGE", "PROJECT PATH"})
 
 	// Check status for each service
 	for serviceName, service := range ws.Services {
@@ -1352,8 +1371,23 @@ func workspaceListHandler(cmd *cobra.Command, args []string) error {
 			account = account[:12] + "..."
 		}
 
-		fmt.Printf("%-15s %-30s %-15s %-10s\n", serviceName, displayPath, account, status)
+		// Add row to table with colored status
+		statusColored := status
+		switch status {
+		case "running":
+			statusColored = ui.SuccessColor.Sprint("running")
+		case "stopped":
+			statusColored = ui.WarningColor.Sprint("stopped")
+		case "not found":
+			statusColored = ui.ErrorColor.Sprint("not found")
+		}
+
+		// For workspace list, we show the service path as the project path
+		table.AddRow(serviceName, account, statusColored, "-", displayPath)
 	}
+
+	// Render the table
+	table.Render()
 
 	fmt.Printf("\nWorkspace Hash: %s\n", workspaceHash[:16]+"...") // Show first 16 chars of hash
 
@@ -1436,10 +1470,12 @@ This command finds the container for the specified service using workspace
 labels and naming conventions, then executes the provided command with
 full I/O streaming.
 
+IMPORTANT: Use '--' to separate reactor flags from command flags.
+
 Examples:
+  reactor workspace exec api -- ls -la /tmp            # Run ls with flags (note the --)
   reactor workspace exec api -- bash                   # Interactive shell
   reactor workspace exec api -- npm test               # Run tests  
-  reactor workspace exec api -- ls -la /home           # Command with flags
   reactor workspace exec -f my-workspace.yml api -- ls # Use specific workspace
 
 The service must already be running (started with 'reactor workspace up').
@@ -1659,7 +1695,9 @@ func workspaceExecHandler(cmd *cobra.Command, args []string) error {
 
 	// Execute the command in the container
 	fmt.Printf("Executing command in service '%s': %v\n", serviceName, command)
-	return dockerService.ExecuteInteractiveCommand(ctx, container.ID, command)
+	// Determine if this is an interactive session (TTY available)
+	isInteractive := isatty.IsTerminal(os.Stdin.Fd())
+	return dockerService.ExecuteInteractiveCommand(ctx, container.ID, command, isInteractive)
 }
 
 // workspaceDownHandler stops and removes all or specific services in a workspace

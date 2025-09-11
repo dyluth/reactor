@@ -284,6 +284,19 @@ func Up(ctx context.Context, upConfig UpConfig) (*config.ResolvedConfig, string,
 		}
 	}
 
+	// Write project path for accounts list functionality (Milestone 6)
+	projectPathFile := filepath.Join(resolved.ProjectConfigDir, "project-path.txt")
+	absProjectPath, err := filepath.Abs(resolved.ProjectRoot)
+	if err != nil {
+		// This is not a fatal error, just log a warning
+		fmt.Fprintf(os.Stderr, "Warning: failed to get absolute project path: %v\n", err)
+	} else {
+		if err := os.WriteFile(projectPathFile, []byte(absProjectPath), 0644); err != nil {
+			// This is not a fatal error, just log a warning
+			fmt.Fprintf(os.Stderr, "Warning: failed to write project path file: %v\n", err)
+		}
+	}
+
 	return resolved, containerInfo.ID, nil
 }
 

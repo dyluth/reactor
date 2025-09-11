@@ -764,7 +764,7 @@ func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID stri
 }
 
 // ExecuteInteractiveCommand runs a command interactively in the specified container
-func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID string, command []string) error {
+func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID string, command []string, isInteractive bool) error {
 	if len(command) == 0 {
 		return fmt.Errorf("command array cannot be empty")
 	}
@@ -815,9 +815,14 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 		_, _ = io.Copy(os.Stdout, attachResp.Reader)
 	}()
 
-	// Copy stdin to container
+	// Copy stdin to container with error suppression for interactive sessions
 	go func() {
-		_, _ = io.Copy(attachResp.Conn, os.Stdin)
+		_, err := io.Copy(attachResp.Conn, os.Stdin)
+		// Suppress "broken pipe" error for interactive sessions (expected when detaching)
+		if err != nil && isInteractive && strings.Contains(err.Error(), "write: broken pipe") {
+			// This is expected when user detaches, don't log as error
+			return
+		}
 	}()
 
 	// Wait for the exec to complete

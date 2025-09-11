@@ -72,11 +72,14 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 		user = "claude" // Default fallback for backward compatibility
 	}
 
-	// Determine container command: use DefaultCommand from reactor customizations or default to sh
-	command := []string{"/bin/sh"} // Default interactive shell (more universal than bash)
+	// Determine container command.
+	var command []string
 	if resolved.DefaultCommand != "" {
-		// For defaultCommand, wrap it in a shell to handle complex commands
+		// If a default command is specified in reactor customizations, use it.
 		command = []string{"/bin/sh", "-c", resolved.DefaultCommand}
+	} else {
+		// Otherwise, default to an interactive shell. This is the expected behavior for `reactor up`.
+		command = []string{"/bin/sh"}
 	}
 
 	return &ContainerBlueprint{

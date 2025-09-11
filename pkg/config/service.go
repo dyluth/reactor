@@ -145,7 +145,6 @@ func (s *Service) InitializeProject() error {
 	template := fmt.Sprintf(`{
 	"name": "%s",
 	"image": "ghcr.io/dyluth/reactor/base:latest",
-	"remoteUser": "root",
 	
 	"customizations": {
 		"reactor": {
@@ -243,11 +242,115 @@ func (s *Service) ListAccounts() error {
 
 		for _, project := range projectEntries {
 			if project.IsDir() {
-				fmt.Printf("    project: %s\n", project.Name())
+				// Try to read project-path.txt to get the human-readable path
+				projectPathFile := filepath.Join(accountDir, project.Name(), "project-path.txt")
+				if projectPathData, err := os.ReadFile(projectPathFile); err == nil {
+					projectPath := strings.TrimSpace(string(projectPathData))
+					fmt.Printf("    - %s (%s)\n", projectPath, project.Name())
+				} else {
+					// Fallback to hash-only display if project-path.txt doesn't exist
+					fmt.Printf("    project: %s\n", project.Name())
+				}
 			}
 		}
 	}
 
+	return nil
+}
+
+// CleanAccounts scans ~/.reactor/ for orphaned account configurations
+// and prompts the user to remove project directories for non-existent paths
+func (s *Service) CleanAccounts() error {
+	reactorHome, err := GetReactorHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Check if reactor home exists
+	if _, err := os.Stat(reactorHome); os.IsNotExist(err) {
+		fmt.Printf("No accounts found. Reactor home directory does not exist: %s\n", reactorHome)
+		return nil
+	}
+
+	// Read directory contents
+	entries, err := os.ReadDir(reactorHome)
+	if err != nil {
+		return fmt.Errorf("failed to read reactor home directory: %w", err)
+	}
+
+	var orphanedDirs []string
+
+	// Scan all accounts and their project directories
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		accountDir := filepath.Join(reactorHome, entry.Name())
+		projectEntries, err := os.ReadDir(accountDir)
+		if err != nil {
+			continue // Skip accounts we can't read
+		}
+
+		for _, project := range projectEntries {
+			if !project.IsDir() {
+				continue
+			}
+
+			projectConfigDir := filepath.Join(accountDir, project.Name())
+			projectPathFile := filepath.Join(projectConfigDir, "project-path.txt")
+
+			// Try to read the project path
+			if projectPathData, err := os.ReadFile(projectPathFile); err == nil {
+				projectPath := strings.TrimSpace(string(projectPathData))
+
+				// Check if the project path still exists
+				if _, err := os.Stat(projectPath); os.IsNotExist(err) {
+					orphanedDirs = append(orphanedDirs, projectConfigDir)
+				}
+			}
+			// If we can't read project-path.txt, we can't determine if it's orphaned
+		}
+	}
+
+	if len(orphanedDirs) == 0 {
+		fmt.Printf("No orphaned account configurations found.\n")
+		return nil
+	}
+
+	// Display orphaned directories
+	fmt.Printf("Found %d orphaned account configuration(s):\n", len(orphanedDirs))
+	for _, dir := range orphanedDirs {
+		// Extract account and project hash from path
+		relPath, _ := filepath.Rel(reactorHome, dir)
+		fmt.Printf("  %s\n", relPath)
+	}
+
+	// Prompt for confirmation
+	fmt.Printf("\nAre you sure you want to delete these %d configuration directories? [y/N]: ", len(orphanedDirs))
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		// On any error (like EOF), treat it as a "no"
+		response = "n"
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response != "y" && response != "yes" {
+		fmt.Printf("Operation cancelled.\n")
+		return nil
+	}
+
+	// Remove orphaned directories
+	removedCount := 0
+	for _, dir := range orphanedDirs {
+		if err := os.RemoveAll(dir); err != nil {
+			fmt.Printf("Warning: failed to remove %s: %v\n", dir, err)
+		} else {
+			removedCount++
+		}
+	}
+
+	fmt.Printf("Successfully removed %d orphaned configuration directories.\n", removedCount)
 	return nil
 }
 
