@@ -12,6 +12,10 @@ import (
 
 // TestEndToEndScenarios tests complete user workflows
 func TestEndToEndScenarios(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -101,8 +105,8 @@ func TestEndToEndScenarios(t *testing.T) {
 			}
 		}
 
-		// Step 3: Modify configuration
-		cmd = exec.Command(reactorBinary, "config", "set", "image", "python")
+		// Step 3: Modify configuration (using a supported key like 'account')
+		cmd = exec.Command(reactorBinary, "config", "set", "account", "e2e-account")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
 
@@ -111,12 +115,12 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Step 3 - config set failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "edit") || !strings.Contains(string(output), "devcontainer.json") {
-			t.Errorf("Step 3 - Expected devcontainer.json edit instruction")
+		if !strings.Contains(string(output), "Successfully updated account") {
+			t.Errorf("Step 3 - Expected success message but got: %s", string(output))
 		}
 
 		// Step 4: Verify configuration change
-		cmd = exec.Command(reactorBinary, "config", "get", "image")
+		cmd = exec.Command(reactorBinary, "config", "get", "account")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
 
@@ -125,8 +129,8 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Step 4 - config get failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "ghcr.io/dyluth/reactor/base:latest") {
-			t.Errorf("Step 4 - Expected to get default image but got: %s", string(output))
+		if !strings.Contains(string(output), "e2e-account") {
+			t.Errorf("Step 4 - Expected to get new account name but got: %s", string(output))
 		}
 
 		// Step 5: Check sessions (should be empty initially)
@@ -154,7 +158,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		project1Dir := createTempDir(t, "project-alpha")
 		project2Dir := createTempDir(t, "project-beta")
 
-		// Setup project 1 with Claude
+		// Setup project 1 with a default command
 		cmd := exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = project1Dir
 		cmd.Env = append(os.Environ(), env...)
@@ -163,7 +167,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Project 1 init failed: %v", err)
 		}
 
-		cmd = exec.Command(reactorBinary, "config", "set", "provider", "claude")
+		cmd = exec.Command(reactorBinary, "config", "set", "defaultCommand", "echo project1")
 		cmd.Dir = project1Dir
 		cmd.Env = append(os.Environ(), env...)
 		_, err = cmd.CombinedOutput()
@@ -171,7 +175,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Project 1 config set failed: %v", err)
 		}
 
-		// Setup project 2 with Gemini
+		// Setup project 2 with a different default command
 		cmd = exec.Command(reactorBinary, "config", "init")
 		cmd.Dir = project2Dir
 		cmd.Env = append(os.Environ(), env...)
@@ -180,7 +184,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Project 2 init failed: %v", err)
 		}
 
-		cmd = exec.Command(reactorBinary, "config", "set", "provider", "gemini")
+		cmd = exec.Command(reactorBinary, "config", "set", "defaultCommand", "echo project2")
 		cmd.Dir = project2Dir
 		cmd.Env = append(os.Environ(), env...)
 		_, err = cmd.CombinedOutput()
@@ -189,7 +193,7 @@ func TestEndToEndScenarios(t *testing.T) {
 		}
 
 		// Verify they have different configurations
-		cmd = exec.Command(reactorBinary, "config", "get", "provider")
+		cmd = exec.Command(reactorBinary, "config", "get", "defaultCommand")
 		cmd.Dir = project1Dir
 		cmd.Env = append(os.Environ(), env...)
 		output1, err := cmd.CombinedOutput()
@@ -197,7 +201,7 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Project 1 config get failed: %v", err)
 		}
 
-		cmd = exec.Command(reactorBinary, "config", "get", "provider")
+		cmd = exec.Command(reactorBinary, "config", "get", "defaultCommand")
 		cmd.Dir = project2Dir
 		cmd.Env = append(os.Environ(), env...)
 		output2, err := cmd.CombinedOutput()
@@ -205,11 +209,11 @@ func TestEndToEndScenarios(t *testing.T) {
 			t.Fatalf("Project 2 config get failed: %v", err)
 		}
 
-		if !strings.Contains(string(output1), "check your devcontainer.json file") {
-			t.Errorf("Project 1 should show devcontainer.json instruction but got: %s", string(output1))
+		if !strings.Contains(string(output1), "echo project1") {
+			t.Errorf("Project 1 should have defaultCommand 'echo project1' but got: %s", string(output1))
 		}
-		if !strings.Contains(string(output2), "check your devcontainer.json file") {
-			t.Errorf("Project 2 should show devcontainer.json instruction but got: %s", string(output2))
+		if !strings.Contains(string(output2), "echo project2") {
+			t.Errorf("Project 2 should have defaultCommand 'echo project2' but got: %s", string(output2))
 		}
 
 		// Verify they have different project hashes
@@ -295,6 +299,10 @@ func TestEndToEndScenarios(t *testing.T) {
 
 // TestErrorRecoveryScenarios tests how the system handles various error conditions
 func TestErrorRecoveryScenarios(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -322,8 +330,8 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 			t.Fatalf("Config init failed: %v", err)
 		}
 
-		// Try to set invalid provider
-		cmd = exec.Command(reactorBinary, "config", "set", "provider", "invalid-provider")
+		// Try to set invalid account (with invalid characters)
+		cmd = exec.Command(reactorBinary, "config", "set", "account", "invalid/account")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
 
@@ -331,7 +339,7 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 		// This might succeed (just setting the value) or fail with validation
 		// Either behavior is acceptable as long as it doesn't crash
 		if err != nil && !strings.Contains(string(output), "invalid") && !strings.Contains(string(output), "not found") {
-			t.Logf("Setting invalid provider returned: %s", string(output))
+			t.Logf("Setting invalid account returned: %s", string(output))
 		}
 
 		// The important thing is that the config system handles the corrupted state gracefully
@@ -399,6 +407,10 @@ func TestErrorRecoveryScenarios(t *testing.T) {
 
 // TestContainerNameGeneration tests the container naming logic more thoroughly
 func TestContainerNameGeneration(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
