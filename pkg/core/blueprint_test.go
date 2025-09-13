@@ -304,7 +304,7 @@ func TestNewContainerBlueprint(t *testing.T) {
 
 			// Verify basic properties
 			assert.Equal(t, "test-image:latest", blueprint.Image)
-			assert.Equal(t, []string{"/bin/sh"}, blueprint.Command)
+			assert.Nil(t, blueprint.Command)
 			assert.Equal(t, "/workspace", blueprint.WorkDir)
 			assert.Equal(t, "claude", blueprint.User)
 			assert.Equal(t, "bridge", blueprint.NetworkMode)
@@ -393,7 +393,7 @@ func TestContainerBlueprintValidation_EdgeCases(t *testing.T) {
 	// Should handle empty values gracefully
 	assert.NotEmpty(t, blueprint.Name) // sanitizer should provide fallback
 	assert.Equal(t, "", blueprint.Image)
-	assert.Equal(t, []string{"/bin/sh"}, blueprint.Command)
+	assert.Nil(t, blueprint.Command)
 	assert.Equal(t, "/workspace", blueprint.WorkDir)
 	assert.Equal(t, "claude", blueprint.User)
 
@@ -521,9 +521,9 @@ func TestNewContainerBlueprint_DefaultCommand(t *testing.T) {
 			expectedCommand: []string{"/bin/sh", "-c", "echo 'hello world'"},
 		},
 		{
-			name:            "empty defaultCommand falls back to bash",
+			name:            "empty defaultCommand uses nil to let ENTRYPOINT handle default",
 			defaultCommand:  "",
-			expectedCommand: []string{"/bin/sh"},
+			expectedCommand: nil,
 		},
 	}
 
@@ -691,7 +691,7 @@ func TestNewContainerBlueprint_EdgeCaseCoverage(t *testing.T) {
 			if tt.resolved.DefaultCommand != "" {
 				assert.Equal(t, []string{"/bin/sh", "-c", tt.resolved.DefaultCommand}, blueprint.Command, "should use custom default command")
 			} else {
-				assert.Equal(t, []string{"/bin/sh"}, blueprint.Command, "should fallback to sh")
+				assert.Nil(t, blueprint.Command, "should use nil command to let image ENTRYPOINT handle default behavior")
 			}
 
 			// Verify user logic (should always have a fallback)
