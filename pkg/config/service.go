@@ -284,7 +284,12 @@ func (s *Service) CleanAccounts() error {
 		return fmt.Errorf("failed to read reactor home directory: %w", err)
 	}
 
-	var orphanedDirs []string
+	// Store both config directory and project path for better display
+	type orphanedProject struct {
+		configDir   string
+		projectPath string
+	}
+	var orphanedDirs []orphanedProject
 
 	// Scan all accounts and their project directories
 	for _, entry := range entries {
@@ -310,9 +315,27 @@ func (s *Service) CleanAccounts() error {
 			if projectPathData, err := os.ReadFile(projectPathFile); err == nil {
 				projectPath := strings.TrimSpace(string(projectPathData))
 
-				// Check if the project path still exists
+				// Check if the project is orphaned:
+				// 1. Project directory doesn't exist, OR
+				// 2. Project directory exists but has no devcontainer.json configuration
+				isOrphaned := false
+				
 				if _, err := os.Stat(projectPath); os.IsNotExist(err) {
-					orphanedDirs = append(orphanedDirs, projectConfigDir)
+					// Project directory doesn't exist
+					isOrphaned = true
+				} else {
+					// Project directory exists, check for devcontainer.json
+					if _, found, err := FindDevContainerFile(projectPath); err != nil || !found {
+						// No devcontainer.json found - project is no longer configured for reactor
+						isOrphaned = true
+					}
+				}
+
+				if isOrphaned {
+					orphanedDirs = append(orphanedDirs, orphanedProject{
+						configDir:   projectConfigDir,
+						projectPath: projectPath,
+					})
 				}
 			}
 			// If we can't read project-path.txt, we can't determine if it's orphaned
@@ -326,10 +349,11 @@ func (s *Service) CleanAccounts() error {
 
 	// Display orphaned directories
 	fmt.Printf("Found %d orphaned account configuration(s):\n", len(orphanedDirs))
-	for _, dir := range orphanedDirs {
-		// Extract account and project hash from path
-		relPath, _ := filepath.Rel(reactorHome, dir)
-		fmt.Printf("  %s\n", relPath)
+	for _, orphaned := range orphanedDirs {
+		// Extract account and project hash from path for reference
+		relPath, _ := filepath.Rel(reactorHome, orphaned.configDir)
+		// Show both the project path and the config location
+		fmt.Printf("  %s (%s)\n", orphaned.projectPath, relPath)
 	}
 
 	// Prompt for confirmation
@@ -348,9 +372,9 @@ func (s *Service) CleanAccounts() error {
 
 	// Remove orphaned directories
 	removedCount := 0
-	for _, dir := range orphanedDirs {
-		if err := os.RemoveAll(dir); err != nil {
-			fmt.Printf("Warning: failed to remove %s: %v\n", dir, err)
+	for _, orphaned := range orphanedDirs {
+		if err := os.RemoveAll(orphaned.configDir); err != nil {
+			fmt.Printf("Warning: failed to remove %s: %v\n", orphaned.configDir, err)
 		} else {
 			removedCount++
 		}
