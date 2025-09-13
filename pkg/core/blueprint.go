@@ -77,10 +77,8 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 	if resolved.DefaultCommand != "" {
 		// If a default command is specified in reactor customizations, use it.
 		command = []string{"/bin/sh", "-c", resolved.DefaultCommand}
-	} else {
-		// Otherwise, default to an interactive shell. This is the expected behavior for `reactor up`.
-		command = []string{"/bin/sh"}
 	}
+	// Otherwise, use nil command to let the image's ENTRYPOINT handle default behavior
 
 	return &ContainerBlueprint{
 		Name:         containerName,

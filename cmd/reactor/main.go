@@ -469,8 +469,8 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Attaching to container session...\n")
 	}
 
-	// Use ExecuteInteractiveCommand with default shell for interactive session
-	defaultShell := []string{"/bin/sh"}
+	// Use ExecuteInteractiveCommand with bash in interactive mode for better shell experience
+	defaultShell := []string{"/bin/bash", "-i"}
 	if err := dockerService.ExecuteInteractiveCommand(ctx, containerID, defaultShell, true); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}
@@ -992,8 +992,8 @@ func sessionsAttachHandler(cmd *cobra.Command, args []string) error {
 
 	// Attach to the container
 	fmt.Printf("Attaching to container: %s\n", containerName)
-	// Use ExecuteInteractiveCommand with default shell for interactive session
-	defaultShell := []string{"/bin/sh"}
+	// Use ExecuteInteractiveCommand with bash in interactive mode for better shell experience
+	defaultShell := []string{"/bin/bash", "-i"}
 	if err := dockerService.ExecuteInteractiveCommand(ctx, containerInfo.ID, defaultShell, true); err != nil {
 		return fmt.Errorf("failed to attach to container: %w", err)
 	}

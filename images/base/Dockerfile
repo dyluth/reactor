@@ -72,7 +72,21 @@ USER root
 RUN git clone https://github.com/jimeh/git-aware-prompt.git /usr/local/git-aware-prompt \
     && echo 'export GITAWAREPROMPT=/usr/local/git-aware-prompt' >> /home/claude/.bashrc \
     && echo 'source "${GITAWAREPROMPT}/main.sh"' >> /home/claude/.bashrc \
-    && echo 'export PS1="\u@\h \W \[\$txtcyn\]\$git_branch\[\$txtred\]\$git_dirty\[\$txtrst\]\$ "' >> /home/claude/.bashrc \
+    && echo '# Custom Reactor prompt with project context' >> /home/claude/.bashrc \
+    && echo 'get_project_name() {' >> /home/claude/.bashrc \
+    && echo '  if [ -f "/workspace/.devcontainer/devcontainer.json" ]; then' >> /home/claude/.bashrc \
+    && echo '    grep -o "\"name\":[[:space:]]*\"[^\"]*\"" /workspace/.devcontainer/devcontainer.json | cut -d"\"" -f4 | head -1' >> /home/claude/.bashrc \
+    && echo '  elif [ -f "/workspace/package.json" ]; then' >> /home/claude/.bashrc \
+    && echo '    grep -o "\"name\":[[:space:]]*\"[^\"]*\"" /workspace/package.json | cut -d"\"" -f4 | head -1' >> /home/claude/.bashrc \
+    && echo '  else' >> /home/claude/.bashrc \
+    && echo '    basename $(pwd)' >> /home/claude/.bashrc \
+    && echo '  fi' >> /home/claude/.bashrc \
+    && echo '}' >> /home/claude/.bashrc \
+    && echo 'export PS1="reactor-\[\033[1;34m\]\$(get_project_name)\[\033[0m\] \W \[\$txtcyn\]\$git_branch\[\$txtred\]\$git_dirty\[\$txtrst\]\$ "' >> /home/claude/.bashrc \
+    && echo '# Improve terminal behavior' >> /home/claude/.bashrc \
+    && echo 'set +o posix' >> /home/claude/.bashrc \
+    && echo 'stty -echo 2>/dev/null || true' >> /home/claude/.bashrc \
+    && echo 'stty echo 2>/dev/null || true' >> /home/claude/.bashrc \
     && chown claude:claude /home/claude/.bashrc
 
 # Set up workspace directory
@@ -88,7 +102,6 @@ WORKDIR /workspace
 
 # Configure entrypoint and default command
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["tail", "-f", "/dev/null"]
 
 # Metadata
 LABEL org.opencontainers.image.title="Reactor Base"
