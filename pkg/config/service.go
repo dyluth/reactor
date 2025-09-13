@@ -157,6 +157,12 @@ func (s *Service) InitializeProject() error {
 		return fmt.Errorf("failed to write devcontainer.json: %w", err)
 	}
 
+	// Set up reactor home directory structure for accounts list functionality
+	if err := s.setupProjectRegistration(username); err != nil {
+		// This is not critical - devcontainer.json was created successfully
+		fmt.Fprintf(os.Stderr, "Warning: failed to register project for accounts list: %v\n", err)
+	}
+
 	fmt.Printf("Initialized devcontainer.json at: %s\n\n", configPath)
 	fmt.Printf("Default configuration:\n")
 	fmt.Printf("  name: %s\n", filepath.Base(s.projectRoot))
@@ -351,6 +357,38 @@ func (s *Service) CleanAccounts() error {
 	}
 
 	fmt.Printf("Successfully removed %d orphaned configuration directories.\n", removedCount)
+	return nil
+}
+
+// setupProjectRegistration creates the reactor home directory structure 
+// and registers the current project so it appears in accounts list
+func (s *Service) setupProjectRegistration(account string) error {
+	// Generate project hash and paths (same logic as ResolveConfiguration)
+	projectHash := GenerateProjectHash(s.projectRoot)
+	reactorHome, err := GetReactorHomeDir()
+	if err != nil {
+		return err
+	}
+
+	accountConfigDir := filepath.Join(reactorHome, account)
+	projectConfigDir := filepath.Join(accountConfigDir, projectHash)
+
+	// Create the directory structure
+	if err := os.MkdirAll(projectConfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create project config directory: %w", err)
+	}
+
+	// Write project-path.txt file so the project shows up in accounts list
+	projectPathFile := filepath.Join(projectConfigDir, "project-path.txt")
+	absProjectPath, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute project path: %w", err)
+	}
+
+	if err := os.WriteFile(projectPathFile, []byte(absProjectPath), 0644); err != nil {
+		return fmt.Errorf("failed to write project path file: %w", err)
+	}
+
 	return nil
 }
 
