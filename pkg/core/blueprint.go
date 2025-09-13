@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -66,10 +67,15 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 	}
 
-	// Determine container user: use RemoteUser from devcontainer.json or default to "claude"
+	// Determine container user: use RemoteUser from devcontainer.json or default to system user
 	user := resolved.RemoteUser
 	if user == "" {
-		user = "claude" // Default fallback for backward compatibility
+		// Default to system username for consistency with account, fallback to user for broader compatibility
+		if systemUser, err := getCurrentSystemUsername(); err == nil && systemUser != "" {
+			user = systemUser
+		} else {
+			user = "user" // Generic fallback that works with most images
+		}
 	}
 
 	// Determine container command.
@@ -186,4 +192,13 @@ func formatDockerMount(hostPath, containerPath string) string {
 func needsQuoting(path string) bool {
 	// Check for spaces and other characters that can cause parsing issues
 	return strings.ContainsAny(path, " \t\n\r\"'\\")
+}
+
+// getCurrentSystemUsername returns the current system username for container user default
+func getCurrentSystemUsername() (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return currentUser.Username, nil
 }
