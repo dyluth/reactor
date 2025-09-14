@@ -446,7 +446,7 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 
 	// Call orchestrator Up function
 	ctx := context.Background()
-	_, containerID, err := orchestrator.Up(ctx, upConfig)
+	resolved, containerID, err := orchestrator.Up(ctx, upConfig)
 	if err != nil {
 		return err
 	}
@@ -469,9 +469,21 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Attaching to container session...\n")
 	}
 
-	// Use ExecuteInteractiveCommand with bash in interactive mode for better shell experience
-	defaultShell := []string{"/bin/bash", "-i"}
-	if err := dockerService.ExecuteInteractiveCommand(ctx, containerID, defaultShell, true); err != nil {
+	// Use ExecuteInteractiveCommand with defaultCommand from config, fallback to bash
+	var interactiveCommand []string
+	if resolved.DefaultCommand != "" {
+		// For Claude CLI, run directly to ensure proper TTY detection
+		if strings.Contains(resolved.DefaultCommand, "claude") {
+			interactiveCommand = strings.Fields(resolved.DefaultCommand)
+		} else {
+			// Use interactive shell with proper terminal environment for other commands
+			interactiveCommand = []string{"/bin/bash", "-i", "-c", fmt.Sprintf("export TERM=xterm-256color; %s", resolved.DefaultCommand)}
+		}
+	} else {
+		interactiveCommand = []string{"/bin/bash", "-i"}
+	}
+	
+	if err := dockerService.ExecuteInteractiveCommand(ctx, containerID, interactiveCommand, true); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}
 

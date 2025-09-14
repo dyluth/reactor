@@ -37,6 +37,7 @@ type ResolvedConfig struct {
 	RemoteUser        string        // container user from devcontainer.json
 	Build             *Build        // Docker build configuration from devcontainer.json
 	PostCreateCommand interface{}   // post-creation command from devcontainer.json (string or []string)
+	ContainerEnv      map[string]string // container environment variables from devcontainer.json
 	DefaultCommand    string        // default command from reactor customizations
 	Danger            bool
 }
@@ -72,13 +73,14 @@ var BuiltinImages = map[string]string{
 
 // DevContainerConfig represents the structure of a devcontainer.json file
 type DevContainerConfig struct {
-	Name              string          `json:"name"`
-	Image             string          `json:"image"`
-	Build             *Build          `json:"build"`
-	ForwardPorts      []interface{}   `json:"forwardPorts"` // Can be int or string "host:container"
-	RemoteUser        string          `json:"remoteUser"`
-	PostCreateCommand interface{}     `json:"postCreateCommand"`
-	Customizations    *Customizations `json:"customizations"`
+	Name              string            `json:"name"`
+	Image             string            `json:"image"`
+	Build             *Build            `json:"build"`
+	ForwardPorts      []interface{}     `json:"forwardPorts"` // Can be int or string "host:container"
+	RemoteUser        string            `json:"remoteUser"`
+	PostCreateCommand interface{}       `json:"postCreateCommand"`
+	ContainerEnv      map[string]string `json:"containerEnv"`
+	Customizations    *Customizations   `json:"customizations"`
 }
 
 // Build defines Docker build properties

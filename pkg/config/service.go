@@ -112,6 +112,7 @@ func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedC
 		RemoteUser:        remoteUser,
 		Build:             devConfig.Build,
 		PostCreateCommand: devConfig.PostCreateCommand,
+		ContainerEnv:      devConfig.ContainerEnv,
 		DefaultCommand:    defaultCommand,
 		Danger:            false, // Default to safe mode for now
 	}, nil
@@ -196,7 +197,11 @@ func (s *Service) ShowConfiguration() error {
 	fmt.Printf("  project root:    %s\n", resolved.ProjectRoot)
 	fmt.Printf("  project hash:    %s\n", resolved.ProjectHash)
 	fmt.Printf("  account dir:     %s\n", resolved.AccountConfigDir)
-	fmt.Printf("  project config:  %s\n\n", resolved.ProjectConfigDir)
+	fmt.Printf("  project config:  %s\n", resolved.ProjectConfigDir)
+	if resolved.DefaultCommand != "" {
+		fmt.Printf("  default command: %s\n", resolved.DefaultCommand)
+	}
+	fmt.Printf("\n")
 
 	fmt.Printf("Edit %s to customize your development environment.\n", configPath)
 	fmt.Printf("See https://containers.dev/implementors/json_reference/ for full specification.\n")

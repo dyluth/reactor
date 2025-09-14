@@ -87,6 +87,10 @@ RUN git clone https://github.com/jimeh/git-aware-prompt.git /usr/local/git-aware
     && echo 'set +o posix' >> /home/claude/.bashrc \
     && echo 'stty -echo 2>/dev/null || true' >> /home/claude/.bashrc \
     && echo 'stty echo 2>/dev/null || true' >> /home/claude/.bashrc \
+    && echo '# Auto-start Claude CLI if REACTOR_CLAUDE_AUTOSTART is set' >> /home/claude/.bashrc \
+    && echo 'if [ "$REACTOR_CLAUDE_AUTOSTART" = "true" ] && [ "$PWD" = "/workspace" ]; then' >> /home/claude/.bashrc \
+    && echo '  exec claude' >> /home/claude/.bashrc \
+    && echo 'fi' >> /home/claude/.bashrc \
     && chown claude:claude /home/claude/.bashrc
 
 # Set up workspace directory

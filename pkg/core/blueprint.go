@@ -66,6 +66,13 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 	if dockerHostIntegration {
 		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 	}
+	
+	// Add container environment variables from devcontainer.json
+	if resolved.ContainerEnv != nil {
+		for key, value := range resolved.ContainerEnv {
+			environment = append(environment, fmt.Sprintf("%s=%s", key, value))
+		}
+	}
 
 	// Determine container user: use RemoteUser from devcontainer.json or default to system user
 	user := resolved.RemoteUser
