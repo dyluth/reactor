@@ -66,7 +66,7 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 	if dockerHostIntegration {
 		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 	}
-	
+
 	// Add container environment variables from devcontainer.json
 	if resolved.ContainerEnv != nil {
 		for key, value := range resolved.ContainerEnv {

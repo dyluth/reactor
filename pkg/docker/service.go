@@ -12,8 +12,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -763,7 +765,7 @@ func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID stri
 	return nil
 }
 
-// ExecuteInteractiveCommand runs a command interactively in the specified container
+// ExecuteInteractiveCommand runs a command interactively with full TTY support
 func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID string, command []string, isInteractive bool) error {
 	if len(command) == 0 {
 		return fmt.Errorf("command array cannot be empty")
@@ -779,7 +781,24 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 		return fmt.Errorf("container %s is not running, cannot execute command", containerID)
 	}
 
-	// Create exec instance with interactive settings
+	// Phase 1: Set up TTY management for interactive sessions
+	var ttyManager *TTYManager
+	if isInteractive && isTerminalAvailable() {
+		ttyManager, err = NewTTYManager()
+		if err != nil {
+			// Fall back to basic mode if TTY setup fails
+			fmt.Fprintf(os.Stderr, "Warning: TTY setup failed, falling back to basic mode: %v\n", err)
+		}
+		if ttyManager != nil {
+			defer func() {
+				if closeErr := ttyManager.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to close TTY manager: %v\n", closeErr)
+				}
+			}()
+		}
+	}
+
+	// Phase 2: Enhanced exec configuration with proper environment
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
@@ -788,9 +807,38 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 		Cmd:          command,
 	}
 
+	// Add TTY environment variables if TTY manager is available
+	if ttyManager != nil {
+		execConfig.Env = ttyManager.GetEnvironment()
+	}
+
 	execResp, err := s.client.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create exec instance: %w", err)
+	}
+
+	// Phase 3: Set up signal handling for interactive sessions
+	if ttyManager != nil {
+		// Handle terminal resize events
+		ttyManager.WatchResize(func(width, height int) {
+			// Best-effort resize - ignore errors since terminal resizing shouldn't block execution
+			_ = s.client.ContainerExecResize(ctx, execResp.ID, container.ResizeOptions{
+				Height: uint(height),
+				Width:  uint(width),
+			})
+		})
+
+		// Handle interrupt signals
+		ttyManager.WatchSignals(func(sig os.Signal) {
+			switch sig {
+			case syscall.SIGINT:
+				// SIGINT is handled by TTY forwarding - no explicit action needed
+			case syscall.SIGTERM:
+				// Graceful termination - cancel context
+				// Note: We can't cancel the parent context here as it would affect other operations
+				// The signal handling is primarily for cleanup
+			}
+		})
 	}
 
 	// Attach to the exec instance for interactive I/O
@@ -809,41 +857,76 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 		return fmt.Errorf("failed to start command execution: %w", err)
 	}
 
-	// Handle I/O streaming between terminal and container
-	// Copy container output to stdout/stderr
+	// Phase 4: Enhanced I/O handling with proper TTY streaming
+	return s.handleInteractiveIO(ctx, execResp.ID, attachResp, isInteractive)
+}
+
+// handleInteractiveIO manages bidirectional I/O streaming with proper TTY support
+func (s *Service) handleInteractiveIO(ctx context.Context, execID string, attachResp types.HijackedResponse, isInteractive bool) error {
+	// Channel to signal completion of different operations
+	done := make(chan error, 3)
+
+	// Copy container output to stdout with TTY support
 	go func() {
-		_, _ = io.Copy(os.Stdout, attachResp.Reader)
+		_, err := io.Copy(os.Stdout, attachResp.Reader)
+		done <- err
 	}()
 
-	// Copy stdin to container with error suppression for interactive sessions
+	// Copy stdin to container with enhanced error handling
 	go func() {
 		_, err := io.Copy(attachResp.Conn, os.Stdin)
-		// Suppress "broken pipe" error for interactive sessions (expected when detaching)
-		if err != nil && isInteractive && strings.Contains(err.Error(), "write: broken pipe") {
-			// This is expected when user detaches, don't log as error
-			return
+		// Suppress expected errors for interactive sessions
+		if err != nil && isInteractive {
+			errStr := err.Error()
+			if strings.Contains(errStr, "broken pipe") ||
+				strings.Contains(errStr, "use of closed network connection") {
+				// These are expected when user detaches or session ends
+				err = nil
+			}
+		}
+		done <- err
+	}()
+
+	// Monitor exec completion with context cancellation support
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				done <- ctx.Err()
+				return
+			case <-ticker.C:
+				inspectResp, err := s.client.ContainerExecInspect(ctx, execID)
+				if err != nil {
+					done <- fmt.Errorf("failed to inspect exec: %w", err)
+					return
+				}
+
+				if !inspectResp.Running {
+					if inspectResp.ExitCode != 0 {
+						done <- fmt.Errorf("command failed with exit code %d", inspectResp.ExitCode)
+					} else {
+						done <- nil
+					}
+					return
+				}
+			}
 		}
 	}()
 
-	// Wait for the exec to complete
-	for {
-		inspectResp, err := s.client.ContainerExecInspect(ctx, execResp.ID)
-		if err != nil {
-			return fmt.Errorf("failed to inspect command execution: %w", err)
-		}
+	// Wait for first completion signal (any of the three operations)
+	err := <-done
 
-		if !inspectResp.Running {
-			if inspectResp.ExitCode != 0 {
-				return fmt.Errorf("command failed with exit code %d", inspectResp.ExitCode)
-			}
-			break
-		}
-
-		// Small delay to avoid busy waiting
-		time.Sleep(100 * time.Millisecond)
+	// Give a brief moment for other goroutines to complete naturally
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case <-done:
+		// Another operation completed, continue
 	}
 
-	return nil
+	return err
 }
 
 // GetClient returns the underlying Docker client for direct API access

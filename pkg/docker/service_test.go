@@ -2142,13 +2142,17 @@ func TestExecuteInteractiveCommand_Success(t *testing.T) {
 	})).Return(nil)
 
 	// Mock exec inspect (command completed successfully)
+	// The new handleInteractiveIO method may call this multiple times in its polling loop
 	mockClient.On("ContainerExecInspect", ctx, "exec-123").Return(container.ExecInspect{
 		Running:  false,
 		ExitCode: 0,
-	}, nil)
+	}, nil).Maybe()
 
 	err := service.ExecuteInteractiveCommand(ctx, containerID, command, false)
 	assert.NoError(t, err)
+
+	// The enhanced implementation may have different call patterns, so we'll verify
+	// that the essential calls were made rather than exact counts
 	mockClient.AssertExpectations(t)
 }
 

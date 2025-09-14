@@ -30,15 +30,15 @@ type ResolvedConfig struct {
 	Account           string
 	Image             string
 	ProjectRoot       string
-	ProjectHash       string        // first 8 chars of project path hash
-	AccountConfigDir  string        // ~/.reactor/<account>/
-	ProjectConfigDir  string        // ~/.reactor/<account>/<project-hash>/
-	ForwardPorts      []PortMapping // port forwarding from devcontainer.json
-	RemoteUser        string        // container user from devcontainer.json
-	Build             *Build        // Docker build configuration from devcontainer.json
-	PostCreateCommand interface{}   // post-creation command from devcontainer.json (string or []string)
+	ProjectHash       string            // first 8 chars of project path hash
+	AccountConfigDir  string            // ~/.reactor/<account>/
+	ProjectConfigDir  string            // ~/.reactor/<account>/<project-hash>/
+	ForwardPorts      []PortMapping     // port forwarding from devcontainer.json
+	RemoteUser        string            // container user from devcontainer.json
+	Build             *Build            // Docker build configuration from devcontainer.json
+	PostCreateCommand interface{}       // post-creation command from devcontainer.json (string or []string)
 	ContainerEnv      map[string]string // container environment variables from devcontainer.json
-	DefaultCommand    string        // default command from reactor customizations
+	DefaultCommand    string            // default command from reactor customizations
 	Danger            bool
 }
 

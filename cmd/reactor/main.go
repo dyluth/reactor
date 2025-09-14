@@ -482,7 +482,7 @@ func upCmdHandler(cmd *cobra.Command, args []string) error {
 	} else {
 		interactiveCommand = []string{"/bin/bash", "-i"}
 	}
-	
+
 	if err := dockerService.ExecuteInteractiveCommand(ctx, containerID, interactiveCommand, true); err != nil {
 		return fmt.Errorf("failed to attach to container session: %w", err)
 	}

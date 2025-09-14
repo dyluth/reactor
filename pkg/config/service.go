@@ -324,7 +324,7 @@ func (s *Service) CleanAccounts() error {
 				// 1. Project directory doesn't exist, OR
 				// 2. Project directory exists but has no devcontainer.json configuration
 				isOrphaned := false
-				
+
 				if _, err := os.Stat(projectPath); os.IsNotExist(err) {
 					// Project directory doesn't exist
 					isOrphaned = true
@@ -389,7 +389,7 @@ func (s *Service) CleanAccounts() error {
 	return nil
 }
 
-// setupProjectRegistration creates the reactor home directory structure 
+// setupProjectRegistration creates the reactor home directory structure
 // and registers the current project so it appears in accounts list
 func (s *Service) setupProjectRegistration(account string) error {
 	// Generate project hash and paths (same logic as ResolveConfiguration)

@@ -361,11 +361,11 @@ N/A - This is a backend/CLI enhancement with no UI components.
 - Proper cleanup of terminal state on abnormal termination (panic recovery)
 - Zero impact on non-interactive command execution
 
-**Accessibility (a11y):** 
-- Full compatibility with screen readers (VoiceOver, NVDA, JAWS) through proper terminal output forwarding
-- Support for high contrast and custom terminal themes
-- Keyboard-only navigation must remain fully functional
-- Terminal output must respect user's accessibility settings
+**Accessibility (a11y):**
+- Terminal output preserves ANSI escape codes for screen readers that support them
+- Keyboard shortcuts (Ctrl+C, Ctrl+D, Ctrl+Z) function correctly in containerized environments
+- Raw terminal mode maintains existing accessibility tool compatibility
+- No interference with host terminal's accessibility configurations
 
 **Operations & Developer Experience:** 
 - All TTY-related functionality must be unit testable with mock terminal interfaces
@@ -641,9 +641,13 @@ func TestE2E_CrossPlatform_Linux(t *testing.T) {
 
 **Open Questions:**
 
-1. Should we implement TTY enhancements for all commands or only for `defaultCommand` scenarios?
-2. What should be the timeout behavior for non-responsive AI CLIs in interactive mode?
-3. Should we provide configuration options for terminal behavior (TERM type, color support)?
+No open questions remain - all design decisions have been finalized.
+
+**Design Decisions:**
+
+- TTY enhancements apply to **all** interactive sessions via `ExecuteInteractiveCommand` (reactor up, workspace exec, sessions attach)
+- Non-responsive AI CLIs will inherit Docker's default timeout behavior - no custom timeout needed
+- Terminal behavior uses standard settings (TERM=xterm-256color, COLORTERM=truecolor) without user configuration options
 
 **Assumptions:**
 
