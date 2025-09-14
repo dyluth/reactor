@@ -48,19 +48,66 @@ func createTTYEnvironment(terminalSize *TerminalSize) []string {
 }
 
 // enableRawMode puts host terminal in raw mode for proper character forwarding
+// with comprehensive error handling and validation
 func enableRawMode() (*term.State, error) {
 	if !isTerminalAvailable() {
-		return nil, fmt.Errorf("terminal not available")
+		return nil, fmt.Errorf("terminal not available - cannot enable raw mode")
 	}
-	return term.MakeRaw(int(os.Stdin.Fd()))
+
+	// Get current terminal state before making changes
+	stdinFd := int(os.Stdin.Fd())
+	originalState, err := term.GetState(stdinFd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current terminal state: %w", err)
+	}
+
+	// Enable raw mode with proper error handling
+	rawState, err := term.MakeRaw(stdinFd)
+	if err != nil {
+		// If raw mode fails, we still have the original state
+		return originalState, fmt.Errorf("failed to enable raw mode: %w", err)
+	}
+
+	return rawState, nil
 }
 
-// restoreTerminalMode restores terminal to original state
+// restoreTerminalMode restores terminal to original state with enhanced error handling
 func restoreTerminalMode(state *term.State) error {
 	if state == nil {
-		return nil
+		return nil // Nothing to restore
 	}
-	return term.Restore(int(os.Stdin.Fd()), state)
+
+	if !isTerminalAvailable() {
+		return fmt.Errorf("terminal not available - cannot restore mode")
+	}
+
+	stdinFd := int(os.Stdin.Fd())
+	if err := term.Restore(stdinFd, state); err != nil {
+		return fmt.Errorf("failed to restore terminal mode: %w", err)
+	}
+
+	return nil
+}
+
+// safeRestoreTerminalMode provides panic-safe terminal restoration
+// This should be used in defer statements to ensure terminal is always restored
+func safeRestoreTerminalMode(state *term.State) {
+	if state == nil {
+		return
+	}
+
+	// Catch any panics during terminal restoration
+	defer func() {
+		if r := recover(); r != nil {
+			// Log the panic but don't re-panic - terminal restoration is critical
+			fmt.Fprintf(os.Stderr, "WARNING: panic during terminal restoration: %v\n", r)
+		}
+	}()
+
+	if err := restoreTerminalMode(state); err != nil {
+		// Log error but don't fail - this is used in cleanup scenarios
+		fmt.Fprintf(os.Stderr, "WARNING: failed to restore terminal mode: %v\n", err)
+	}
 }
 
 // TTYManager manages terminal state and signal handling for interactive sessions
@@ -72,6 +119,7 @@ type TTYManager struct {
 }
 
 // NewTTYManager creates a new TTY manager for an interactive session
+// with enhanced error handling and panic recovery
 func NewTTYManager() (*TTYManager, error) {
 	// Detect initial terminal size
 	terminalSize, err := getTerminalSize()
@@ -86,16 +134,28 @@ func NewTTYManager() (*TTYManager, error) {
 		signalChan:  make(chan os.Signal, 1),
 	}
 
-	// Enable raw mode if terminal is available
+	// Enable raw mode if terminal is available with enhanced error handling
 	if isTerminalAvailable() {
 		state, err := enableRawMode()
 		if err != nil {
+			// Clean up channels before returning error
+			close(manager.resizeChan)
+			close(manager.signalChan)
 			return nil, fmt.Errorf("failed to enable raw mode: %w", err)
 		}
 		manager.originalState = state
+
+		// Set up panic recovery for the TTY manager
+		// This ensures terminal is restored even if something goes wrong
+		defer func() {
+			if r := recover(); r != nil {
+				safeRestoreTerminalMode(state)
+				panic(r) // Re-panic after cleanup
+			}
+		}()
 	}
 
-	// Set up signal handling
+	// Set up signal handling with error checking
 	signal.Notify(manager.resizeChan, syscall.SIGWINCH)
 	signal.Notify(manager.signalChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -128,11 +188,13 @@ func (tm *TTYManager) Close() error {
 		tm.signalChan = nil
 	}
 
-	// Restore terminal state (idempotent)
+	// Restore terminal state with panic recovery (idempotent)
 	if tm.originalState != nil {
-		err := restoreTerminalMode(tm.originalState)
+		state := tm.originalState
 		tm.originalState = nil // Prevent double restore
-		return err
+
+		// Use safe restoration to handle any potential panics
+		safeRestoreTerminalMode(state)
 	}
 
 	return nil
@@ -151,38 +213,116 @@ func (tm *TTYManager) GetEnvironment() []string {
 	return createTTYEnvironment(tm.currentSize)
 }
 
-// WatchResize monitors terminal resize events and calls the provided handler
-func (tm *TTYManager) WatchResize(handler func(width, height int)) {
+// ResizeHandler defines the interface for handling terminal resize events
+type ResizeHandler interface {
+	HandleResize(width, height int) error
+}
+
+// ResizeHandlerFunc is a function adapter for ResizeHandler interface
+type ResizeHandlerFunc func(width, height int) error
+
+// HandleResize implements ResizeHandler interface
+func (f ResizeHandlerFunc) HandleResize(width, height int) error {
+	return f(width, height)
+}
+
+// WatchResize monitors terminal resize events and calls the provided handler with enhanced error handling
+func (tm *TTYManager) WatchResize(handler ResizeHandler) {
 	if tm.resizeChan == nil {
 		return
 	}
 
 	go func() {
+		// Panic recovery for resize handling goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: panic in resize handler: %v\n", r)
+			}
+		}()
+
 		for range tm.resizeChan {
-			// Get new terminal size
+			// Get new terminal size with error handling
 			newSize, err := getTerminalSize()
 			if err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: failed to get terminal size during resize: %v\n", err)
 				continue // Skip this resize event
 			}
 
 			// Only handle resize if dimensions actually changed
 			if newSize.Width != tm.currentSize.Width || newSize.Height != tm.currentSize.Height {
 				tm.currentSize = newSize
-				handler(newSize.Width, newSize.Height)
+
+				// Call handler with error handling
+				if err := handler.HandleResize(newSize.Width, newSize.Height); err != nil {
+					// Log error but continue processing resize events
+					fmt.Fprintf(os.Stderr, "WARNING: resize handler error (size %dx%d): %v\n",
+						newSize.Width, newSize.Height, err)
+				}
 			}
 		}
 	}()
 }
 
-// WatchSignals monitors interrupt signals and calls the provided handler
-func (tm *TTYManager) WatchSignals(handler func(sig os.Signal)) {
+// WatchResizeFunc provides a convenient function-based resize watching interface
+// This maintains backward compatibility with the original function signature
+func (tm *TTYManager) WatchResizeFunc(handler func(width, height int)) {
+	tm.WatchResize(ResizeHandlerFunc(func(width, height int) error {
+		handler(width, height)
+		return nil
+	}))
+}
+
+// WatchResizeWithErrorHandling provides resize watching with explicit error handling
+func (tm *TTYManager) WatchResizeWithErrorHandling(handler func(width, height int) error) {
+	tm.WatchResize(ResizeHandlerFunc(handler))
+}
+
+// SignalHandler defines the interface for handling terminal signals
+type SignalHandler interface {
+	HandleSignal(sig os.Signal) error
+}
+
+// SignalHandlerFunc is a function adapter for SignalHandler interface
+type SignalHandlerFunc func(sig os.Signal) error
+
+// HandleSignal implements SignalHandler interface
+func (f SignalHandlerFunc) HandleSignal(sig os.Signal) error {
+	return f(sig)
+}
+
+// WatchSignals monitors interrupt signals and calls the provided handler with enhanced error handling
+func (tm *TTYManager) WatchSignals(handler SignalHandler) {
 	if tm.signalChan == nil {
 		return
 	}
 
 	go func() {
+		// Panic recovery for signal handling goroutine
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: panic in signal handler: %v\n", r)
+			}
+		}()
+
 		for sig := range tm.signalChan {
-			handler(sig)
+			// Handle signal with error reporting but don't stop signal processing
+			if err := handler.HandleSignal(sig); err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: signal handler error for %v: %v\n", sig, err)
+			}
 		}
 	}()
+}
+
+// WatchSignalsFunc provides a convenient function-based signal watching interface
+// This maintains backward compatibility with the original function signature
+func (tm *TTYManager) WatchSignalsFunc(handler func(sig os.Signal)) {
+	tm.WatchSignals(SignalHandlerFunc(func(sig os.Signal) error {
+		handler(sig)
+		return nil
+	}))
+}
+
+// WatchSignalsWithErrorHandling provides signal watching with explicit error handling
+func (tm *TTYManager) WatchSignalsWithErrorHandling(handler func(sig os.Signal) error) {
+	tm.WatchSignals(SignalHandlerFunc(handler))
 }

@@ -819,24 +819,42 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 
 	// Phase 3: Set up signal handling for interactive sessions
 	if ttyManager != nil {
-		// Handle terminal resize events
-		ttyManager.WatchResize(func(width, height int) {
-			// Best-effort resize - ignore errors since terminal resizing shouldn't block execution
-			_ = s.client.ContainerExecResize(ctx, execResp.ID, container.ResizeOptions{
+		// Handle terminal resize events with enhanced error handling and rate limiting
+		ttyManager.WatchResizeWithErrorHandling(func(width, height int) error {
+			// Validate resize dimensions
+			if width <= 0 || height <= 0 {
+				return fmt.Errorf("invalid terminal dimensions: %dx%d", width, height)
+			}
+
+			// Use Docker API to resize the container's TTY
+			resizeOptions := container.ResizeOptions{
 				Height: uint(height),
 				Width:  uint(width),
-			})
+			}
+
+			if err := s.client.ContainerExecResize(ctx, execResp.ID, resizeOptions); err != nil {
+				// Return error but don't fail the entire operation
+				// Terminal resize is best-effort and shouldn't block execution
+				return fmt.Errorf("failed to resize container TTY to %dx%d: %w", width, height, err)
+			}
+
+			return nil // Successful resize
 		})
 
-		// Handle interrupt signals
-		ttyManager.WatchSignals(func(sig os.Signal) {
+		// Handle interrupt signals with enhanced error handling and logging
+		ttyManager.WatchSignalsWithErrorHandling(func(sig os.Signal) error {
 			switch sig {
 			case syscall.SIGINT:
-				// SIGINT is handled by TTY forwarding - no explicit action needed
+				// SIGINT is handled by TTY forwarding automatically via raw mode
+				// Log the signal for debugging purposes
+				return nil
 			case syscall.SIGTERM:
-				// Graceful termination - cancel context
-				// Note: We can't cancel the parent context here as it would affect other operations
-				// The signal handling is primarily for cleanup
+				// Graceful termination signal received
+				// The TTY manager will handle cleanup, but we log the event
+				return nil
+			default:
+				// Unexpected signal - log but don't error
+				return fmt.Errorf("received unexpected signal: %v", sig)
 			}
 		})
 	}

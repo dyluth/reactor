@@ -1,9 +1,11 @@
 package docker
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/term"
@@ -275,6 +277,185 @@ func TestRawMode(t *testing.T) {
 		err := restoreTerminalMode(nil)
 		if err != nil {
 			t.Errorf("Expected no error with nil state, got: %v", err)
+		}
+	})
+
+	t.Run("SafeRestoreTerminalMode_NilState", func(t *testing.T) {
+		// Should not panic with nil state
+		safeRestoreTerminalMode(nil)
+		// Test passes if no panic occurs
+	})
+
+	t.Run("SafeRestoreTerminalMode_PanicRecovery", func(t *testing.T) {
+		// This test ensures safeRestoreTerminalMode handles panics gracefully
+		// We can't easily test actual panic scenarios, but we can test the structure
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			// In non-terminal environment, this should handle the error gracefully
+			safeRestoreTerminalMode(&term.State{})
+			// Test passes if no panic occurs
+		}
+	})
+}
+
+func TestEnhancedSignalHandling(t *testing.T) {
+	t.Run("SignalHandlerFunc_Implementation", func(t *testing.T) {
+		called := false
+		var capturedSig os.Signal
+
+		handler := SignalHandlerFunc(func(sig os.Signal) error {
+			called = true
+			capturedSig = sig
+			return nil
+		})
+
+		err := handler.HandleSignal(syscall.SIGTERM)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !called {
+			t.Error("Expected handler to be called")
+		}
+
+		if capturedSig != syscall.SIGTERM {
+			t.Errorf("Expected SIGTERM, got: %v", capturedSig)
+		}
+	})
+
+	t.Run("SignalHandlerFunc_WithError", func(t *testing.T) {
+		expectedErr := fmt.Errorf("test error")
+
+		handler := SignalHandlerFunc(func(sig os.Signal) error {
+			return expectedErr
+		})
+
+		err := handler.HandleSignal(syscall.SIGINT)
+		if err != expectedErr {
+			t.Errorf("Expected %v, got: %v", expectedErr, err)
+		}
+	})
+}
+
+func TestEnhancedResizeHandling(t *testing.T) {
+	t.Run("ResizeHandlerFunc_Implementation", func(t *testing.T) {
+		called := false
+		var capturedWidth, capturedHeight int
+
+		handler := ResizeHandlerFunc(func(width, height int) error {
+			called = true
+			capturedWidth = width
+			capturedHeight = height
+			return nil
+		})
+
+		err := handler.HandleResize(120, 50)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if !called {
+			t.Error("Expected handler to be called")
+		}
+
+		if capturedWidth != 120 || capturedHeight != 50 {
+			t.Errorf("Expected 120x50, got: %dx%d", capturedWidth, capturedHeight)
+		}
+	})
+
+	t.Run("ResizeHandlerFunc_WithError", func(t *testing.T) {
+		expectedErr := fmt.Errorf("resize error")
+
+		handler := ResizeHandlerFunc(func(width, height int) error {
+			return expectedErr
+		})
+
+		err := handler.HandleResize(80, 24)
+		if err != expectedErr {
+			t.Errorf("Expected %v, got: %v", expectedErr, err)
+		}
+	})
+}
+
+func TestTTYManagerEnhancedMethods(t *testing.T) {
+	t.Run("TTYManager_WatchSignalsFunc_BackwardCompatibility", func(t *testing.T) {
+		manager := &TTYManager{
+			signalChan: make(chan os.Signal, 1),
+		}
+		defer func() {
+			if manager.signalChan != nil {
+				close(manager.signalChan)
+			}
+		}()
+
+		manager.WatchSignalsFunc(func(sig os.Signal) {
+			// Signal handler - testing setup only
+		})
+
+		// We don't actually send a real signal, just test the method doesn't panic
+		if manager.signalChan == nil {
+			t.Error("Expected signal channel to be available after WatchSignalsFunc")
+		}
+	})
+
+	t.Run("TTYManager_WatchResizeFunc_BackwardCompatibility", func(t *testing.T) {
+		manager := &TTYManager{
+			resizeChan:  make(chan os.Signal, 1),
+			currentSize: &TerminalSize{Width: 80, Height: 24},
+		}
+		defer func() {
+			if manager.resizeChan != nil {
+				close(manager.resizeChan)
+			}
+		}()
+
+		manager.WatchResizeFunc(func(width, height int) {
+			// Resize handler - testing setup only
+		})
+
+		// Test the method doesn't panic and sets up goroutine
+		if manager.resizeChan == nil {
+			t.Error("Expected resize channel to be available after WatchResizeFunc")
+		}
+	})
+
+	t.Run("TTYManager_WatchSignalsWithErrorHandling", func(t *testing.T) {
+		manager := &TTYManager{
+			signalChan: make(chan os.Signal, 1),
+		}
+		defer func() {
+			if manager.signalChan != nil {
+				close(manager.signalChan)
+			}
+		}()
+
+		manager.WatchSignalsWithErrorHandling(func(sig os.Signal) error {
+			return fmt.Errorf("test error")
+		})
+
+		// Test the method sets up the goroutine without panicking
+		if manager.signalChan == nil {
+			t.Error("Expected signal channel to be available")
+		}
+	})
+
+	t.Run("TTYManager_WatchResizeWithErrorHandling", func(t *testing.T) {
+		manager := &TTYManager{
+			resizeChan:  make(chan os.Signal, 1),
+			currentSize: &TerminalSize{Width: 80, Height: 24},
+		}
+		defer func() {
+			if manager.resizeChan != nil {
+				close(manager.resizeChan)
+			}
+		}()
+
+		manager.WatchResizeWithErrorHandling(func(width, height int) error {
+			return fmt.Errorf("resize test error")
+		})
+
+		// Test the method sets up the goroutine without panicking
+		if manager.resizeChan == nil {
+			t.Error("Expected resize channel to be available")
 		}
 	})
 }
