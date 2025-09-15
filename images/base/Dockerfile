@@ -2,7 +2,7 @@
 # Minimal image with essential CLI tools and AI CLIs (Claude, Gemini)
 # Size target: <200MB compressed
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 # Install essential system packages and CLI tools
 # Combine all apt operations in single layer for optimal caching and size
@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Docker CLI for host integration support
 RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bullseye stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
     && apt-get update \
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
