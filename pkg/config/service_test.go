@@ -281,7 +281,7 @@ func TestService_CleanAccounts(t *testing.T) {
 	t.Setenv("HOME", tempHome)
 	defer func() {
 		if originalHome != "" {
-			os.Setenv("HOME", originalHome)
+			_ = os.Setenv("HOME", originalHome)
 		}
 	}()
 
@@ -337,6 +337,12 @@ func TestNewService_EdgeCase(t *testing.T) {
 	_ = os.Chdir(tempDir)
 
 	service := NewService()
+
+	// Verify service is properly initialized
+	if service == nil {
+		t.Fatal("NewService should not return nil")
+	}
+
 	if service.projectRoot == "" {
 		t.Error("Expected non-empty project root")
 	}
@@ -345,11 +351,6 @@ func TestNewService_EdgeCase(t *testing.T) {
 	currentDir, _ := os.Getwd()
 	if service.projectRoot == "" {
 		t.Error("Project root should not be empty")
-	}
-
-	// Verify service is properly initialized
-	if service == nil {
-		t.Fatal("NewService should not return nil")
 	}
 
 	t.Logf("Service created with project root: %s, current dir: %s", service.projectRoot, currentDir)

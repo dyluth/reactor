@@ -64,12 +64,12 @@ func TestCheckCommand(t *testing.T) {
 		originalPath := os.Getenv("PATH")
 		defer func() {
 			if originalPath != "" {
-				os.Setenv("PATH", originalPath)
+				_ = os.Setenv("PATH", originalPath)
 			}
 		}()
 
 		// Set PATH to empty
-		os.Setenv("PATH", "")
+		_ = os.Setenv("PATH", "")
 
 		err := checkCommand("nonexistent-cmd")
 		if err == nil {
@@ -89,6 +89,39 @@ func TestCheckCommand(t *testing.T) {
 			if err != nil {
 				t.Logf("Command %s not found (expected): %v", cmd, err)
 			}
+		}
+	})
+}
+
+func TestCheckDependencies_EdgeCases(t *testing.T) {
+	// Save and restore environment
+	originalPath := os.Getenv("PATH")
+	originalHome := os.Getenv("HOME")
+	defer func() {
+		if originalPath != "" {
+			_ = os.Setenv("PATH", originalPath)
+		}
+		if originalHome != "" {
+			_ = os.Setenv("HOME", originalHome)
+		}
+	}()
+
+	t.Run("with modified PATH", func(t *testing.T) {
+		// Set a limited PATH to exercise different code paths
+		_ = os.Setenv("PATH", "/usr/bin:/usr/local/bin")
+		err := CheckDependencies()
+		// Should complete without panic
+		if err != nil {
+			t.Logf("CheckDependencies with limited PATH: %v", err)
+		}
+	})
+
+	t.Run("with empty HOME", func(t *testing.T) {
+		_ = os.Setenv("HOME", "")
+		err := CheckDependencies()
+		// Should handle missing HOME gracefully
+		if err != nil {
+			t.Logf("CheckDependencies with empty HOME: %v", err)
 		}
 	})
 }
