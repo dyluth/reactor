@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -162,5 +163,22 @@ func TestBuiltinProviders(t *testing.T) {
 
 	if gemini.Name != "gemini" {
 		t.Errorf("Expected gemini name to be 'gemini', got '%s'", gemini.Name)
+	}
+}
+
+func TestGetSystemUsername(t *testing.T) {
+	username, err := GetSystemUsername()
+
+	if err != nil {
+		t.Errorf("GetSystemUsername failed: %v", err)
+	}
+
+	if username == "" {
+		t.Error("Expected non-empty username")
+	}
+
+	// Username should be a reasonable string (not contain newlines, etc.)
+	if strings.Contains(username, "\n") || strings.Contains(username, "\r") {
+		t.Errorf("Username contains unexpected characters: %q", username)
 	}
 }

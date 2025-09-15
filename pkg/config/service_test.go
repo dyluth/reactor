@@ -264,3 +264,66 @@ func TestParseForwardPorts(t *testing.T) {
 		})
 	}
 }
+
+func TestNewServiceWithRoot(t *testing.T) {
+	projectRoot := "/custom/project/root"
+	service := NewServiceWithRoot(projectRoot)
+
+	if service.projectRoot != projectRoot {
+		t.Errorf("Expected project root %s, got %s", projectRoot, service.projectRoot)
+	}
+}
+
+func TestService_CleanAccounts(t *testing.T) {
+	// Set up test environment with isolation
+	originalHome := os.Getenv("HOME")
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	defer func() {
+		if originalHome != "" {
+			os.Setenv("HOME", originalHome)
+		}
+	}()
+
+	service := NewService()
+
+	t.Run("no reactor home directory", func(t *testing.T) {
+		// Clean accounts when reactor home doesn't exist - should not error
+		err := service.CleanAccounts()
+		if err != nil {
+			t.Errorf("Expected no error when reactor home doesn't exist, got: %v", err)
+		}
+	})
+
+	t.Run("with accounts to clean", func(t *testing.T) {
+		// Create a reactor home with some account directories
+		reactorHome := filepath.Join(tempHome, ".reactor")
+		accountDir := filepath.Join(reactorHome, "test-account")
+		projectDir := filepath.Join(accountDir, "abcd1234")
+
+		err := os.MkdirAll(projectDir, 0755)
+		if err != nil {
+			t.Fatalf("Failed to create test directory structure: %v", err)
+		}
+
+		// Create a devcontainer.json to make it look like a real project
+		devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+		err = os.MkdirAll(devcontainerDir, 0755)
+		if err != nil {
+			t.Fatalf("Failed to create devcontainer directory: %v", err)
+		}
+
+		devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
+		devcontainerContent := `{"name": "test-project"}`
+		err = os.WriteFile(devcontainerPath, []byte(devcontainerContent), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create devcontainer.json: %v", err)
+		}
+
+		// Clean accounts - should handle the existing structure gracefully
+		err = service.CleanAccounts()
+		if err != nil {
+			t.Errorf("CleanAccounts failed: %v", err)
+		}
+	})
+}

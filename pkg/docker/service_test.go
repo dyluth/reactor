@@ -2486,3 +2486,11 @@ func TestListContainersByLabel_EmptyNames(t *testing.T) {
 
 	mockClient.AssertExpectations(t)
 }
+
+func TestService_GetClient(t *testing.T) {
+	mockClient := &MockDockerClient{}
+	service := &Service{client: mockClient}
+
+	client := service.GetClient()
+	assert.Equal(t, mockClient, client)
+}
