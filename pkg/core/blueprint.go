@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -66,18 +67,31 @@ func NewContainerBlueprint(resolved *config.ResolvedConfig, isDiscovery bool, do
 		environment = append(environment, "REACTOR_DOCKER_HOST_INTEGRATION=true")
 	}
 
-	// Determine container user: use RemoteUser from devcontainer.json or default to "claude"
-	user := resolved.RemoteUser
-	if user == "" {
-		user = "claude" // Default fallback for backward compatibility
+	// Add container environment variables from devcontainer.json
+	if resolved.ContainerEnv != nil {
+		for key, value := range resolved.ContainerEnv {
+			environment = append(environment, fmt.Sprintf("%s=%s", key, value))
+		}
 	}
 
-	// Determine container command: use DefaultCommand from reactor customizations or default to sh
-	command := []string{"/bin/sh"} // Default interactive shell (more universal than bash)
+	// Determine container user: use RemoteUser from devcontainer.json or default to system user
+	user := resolved.RemoteUser
+	if user == "" {
+		// Default to system username for consistency with account, fallback to user for broader compatibility
+		if systemUser, err := getCurrentSystemUsername(); err == nil && systemUser != "" {
+			user = systemUser
+		} else {
+			user = "user" // Generic fallback that works with most images
+		}
+	}
+
+	// Determine container command.
+	var command []string
 	if resolved.DefaultCommand != "" {
-		// For defaultCommand, wrap it in a shell to handle complex commands
+		// If a default command is specified in reactor customizations, use it.
 		command = []string{"/bin/sh", "-c", resolved.DefaultCommand}
 	}
+	// Otherwise, use nil command to let the image's ENTRYPOINT handle default behavior
 
 	return &ContainerBlueprint{
 		Name:         containerName,
@@ -185,4 +199,13 @@ func formatDockerMount(hostPath, containerPath string) string {
 func needsQuoting(path string) bool {
 	// Check for spaces and other characters that can cause parsing issues
 	return strings.ContainsAny(path, " \t\n\r\"'\\")
+}
+
+// getCurrentSystemUsername returns the current system username for container user default
+func getCurrentSystemUsername() (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return currentUser.Username, nil
 }

@@ -86,18 +86,32 @@ main() {
     # Switch to claude user for running commands
     if [ "$(whoami)" = "root" ]; then
         log "Switching to claude user..."
-        # If no command specified, default to interactive shell
+        # If no command specified, check if we have a TTY
         if [ $# -eq 0 ]; then
-            exec su - claude -c "cd /workspace && exec bash"
+            if [ -t 0 ]; then
+                # TTY available - use interactive shell
+                exec su - claude -c "cd /workspace && exec bash"
+            else
+                # No TTY - use sleep to keep container alive for exec
+                log "No TTY detected, keeping container alive for exec sessions..."
+                exec su - claude -c "cd /workspace && exec sleep infinity"
+            fi
         else
             exec su - claude -c "cd /workspace && exec \"$@\""
         fi
     else
         log "Running as user: $(whoami)"
         cd /workspace
-        # If no command specified, default to interactive shell
+        # If no command specified, check if we have a TTY
         if [ $# -eq 0 ]; then
-            exec bash
+            if [ -t 0 ]; then
+                # TTY available - use interactive shell
+                exec bash
+            else
+                # No TTY - use sleep to keep container alive for exec
+                log "No TTY detected, keeping container alive for exec sessions..."
+                exec sleep infinity
+            fi
         else
             exec "$@"
         fi

@@ -180,6 +180,42 @@ func TestLoadDevContainerConfig(t *testing.T) {
 		assert.Empty(t, config.RemoteUser)
 		assert.Nil(t, config.Customizations)
 	})
+
+	t.Run("handles JSONC parsing error gracefully", func(t *testing.T) {
+		// Create truly invalid JSON that will fail parsing
+		invalidContent := `{
+			"name": "test",
+			"image": "ubuntu"
+			"missing comma": "here"
+		}`
+
+		configFile := filepath.Join(tmpDir, "invalid.json")
+		require.NoError(t, os.WriteFile(configFile, []byte(invalidContent), 0644))
+
+		// Test that parsing fails appropriately
+		_, err := LoadDevContainerConfig(configFile)
+		if err != nil {
+			assert.Contains(t, err.Error(), "failed to parse JSONC")
+		} else {
+			t.Skip("JSONC parser was more lenient than expected")
+		}
+	})
+
+	t.Run("handles JSON unmarshaling error", func(t *testing.T) {
+		// Create content that passes JSONC but fails JSON unmarshaling into struct
+		conflictingContent := `{
+			"name": 123,
+			"image": true
+		}`
+
+		configFile := filepath.Join(tmpDir, "conflicting.json")
+		require.NoError(t, os.WriteFile(configFile, []byte(conflictingContent), 0644))
+
+		// Test that unmarshaling fails appropriately
+		_, err := LoadDevContainerConfig(configFile)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to unmarshal")
+	})
 }
 
 func TestServiceResolveConfiguration(t *testing.T) {

@@ -112,6 +112,7 @@ func (s *Service) mapToResolvedConfig(devConfig *DevContainerConfig) (*ResolvedC
 		RemoteUser:        remoteUser,
 		Build:             devConfig.Build,
 		PostCreateCommand: devConfig.PostCreateCommand,
+		ContainerEnv:      devConfig.ContainerEnv,
 		DefaultCommand:    defaultCommand,
 		Danger:            false, // Default to safe mode for now
 	}, nil
@@ -145,7 +146,6 @@ func (s *Service) InitializeProject() error {
 	template := fmt.Sprintf(`{
 	"name": "%s",
 	"image": "ghcr.io/dyluth/reactor/base:latest",
-	"remoteUser": "root",
 	
 	"customizations": {
 		"reactor": {
@@ -156,6 +156,12 @@ func (s *Service) InitializeProject() error {
 
 	if err := os.WriteFile(configPath, []byte(template), 0644); err != nil {
 		return fmt.Errorf("failed to write devcontainer.json: %w", err)
+	}
+
+	// Set up reactor home directory structure for accounts list functionality
+	if err := s.setupProjectRegistration(username); err != nil {
+		// This is not critical - devcontainer.json was created successfully
+		fmt.Fprintf(os.Stderr, "Warning: failed to register project for accounts list: %v\n", err)
 	}
 
 	fmt.Printf("Initialized devcontainer.json at: %s\n\n", configPath)
@@ -191,7 +197,11 @@ func (s *Service) ShowConfiguration() error {
 	fmt.Printf("  project root:    %s\n", resolved.ProjectRoot)
 	fmt.Printf("  project hash:    %s\n", resolved.ProjectHash)
 	fmt.Printf("  account dir:     %s\n", resolved.AccountConfigDir)
-	fmt.Printf("  project config:  %s\n\n", resolved.ProjectConfigDir)
+	fmt.Printf("  project config:  %s\n", resolved.ProjectConfigDir)
+	if resolved.DefaultCommand != "" {
+		fmt.Printf("  default command: %s\n", resolved.DefaultCommand)
+	}
+	fmt.Printf("\n")
 
 	fmt.Printf("Edit %s to customize your development environment.\n", configPath)
 	fmt.Printf("See https://containers.dev/implementors/json_reference/ for full specification.\n")
@@ -243,9 +253,169 @@ func (s *Service) ListAccounts() error {
 
 		for _, project := range projectEntries {
 			if project.IsDir() {
-				fmt.Printf("    project: %s\n", project.Name())
+				// Try to read project-path.txt to get the human-readable path
+				projectPathFile := filepath.Join(accountDir, project.Name(), "project-path.txt")
+				if projectPathData, err := os.ReadFile(projectPathFile); err == nil {
+					projectPath := strings.TrimSpace(string(projectPathData))
+					fmt.Printf("    - %s (%s)\n", projectPath, project.Name())
+				} else {
+					// Fallback to hash-only display if project-path.txt doesn't exist
+					fmt.Printf("    project: %s\n", project.Name())
+				}
 			}
 		}
+	}
+
+	return nil
+}
+
+// CleanAccounts scans ~/.reactor/ for orphaned account configurations
+// and prompts the user to remove project directories for non-existent paths
+func (s *Service) CleanAccounts() error {
+	reactorHome, err := GetReactorHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Check if reactor home exists
+	if _, err := os.Stat(reactorHome); os.IsNotExist(err) {
+		fmt.Printf("No accounts found. Reactor home directory does not exist: %s\n", reactorHome)
+		return nil
+	}
+
+	// Read directory contents
+	entries, err := os.ReadDir(reactorHome)
+	if err != nil {
+		return fmt.Errorf("failed to read reactor home directory: %w", err)
+	}
+
+	// Store both config directory and project path for better display
+	type orphanedProject struct {
+		configDir   string
+		projectPath string
+	}
+	var orphanedDirs []orphanedProject
+
+	// Scan all accounts and their project directories
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		accountDir := filepath.Join(reactorHome, entry.Name())
+		projectEntries, err := os.ReadDir(accountDir)
+		if err != nil {
+			continue // Skip accounts we can't read
+		}
+
+		for _, project := range projectEntries {
+			if !project.IsDir() {
+				continue
+			}
+
+			projectConfigDir := filepath.Join(accountDir, project.Name())
+			projectPathFile := filepath.Join(projectConfigDir, "project-path.txt")
+
+			// Try to read the project path
+			if projectPathData, err := os.ReadFile(projectPathFile); err == nil {
+				projectPath := strings.TrimSpace(string(projectPathData))
+
+				// Check if the project is orphaned:
+				// 1. Project directory doesn't exist, OR
+				// 2. Project directory exists but has no devcontainer.json configuration
+				isOrphaned := false
+
+				if _, err := os.Stat(projectPath); os.IsNotExist(err) {
+					// Project directory doesn't exist
+					isOrphaned = true
+				} else {
+					// Project directory exists, check for devcontainer.json
+					if _, found, err := FindDevContainerFile(projectPath); err != nil || !found {
+						// No devcontainer.json found - project is no longer configured for reactor
+						isOrphaned = true
+					}
+				}
+
+				if isOrphaned {
+					orphanedDirs = append(orphanedDirs, orphanedProject{
+						configDir:   projectConfigDir,
+						projectPath: projectPath,
+					})
+				}
+			}
+			// If we can't read project-path.txt, we can't determine if it's orphaned
+		}
+	}
+
+	if len(orphanedDirs) == 0 {
+		fmt.Printf("No orphaned account configurations found.\n")
+		return nil
+	}
+
+	// Display orphaned directories
+	fmt.Printf("Found %d orphaned account configuration(s):\n", len(orphanedDirs))
+	for _, orphaned := range orphanedDirs {
+		// Extract account and project hash from path for reference
+		relPath, _ := filepath.Rel(reactorHome, orphaned.configDir)
+		// Show both the project path and the config location
+		fmt.Printf("  %s (%s)\n", orphaned.projectPath, relPath)
+	}
+
+	// Prompt for confirmation
+	fmt.Printf("\nAre you sure you want to delete these %d configuration directories? [y/N]: ", len(orphanedDirs))
+	var response string
+	if _, err := fmt.Scanln(&response); err != nil {
+		// On any error (like EOF), treat it as a "no"
+		response = "n"
+	}
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	if response != "y" && response != "yes" {
+		fmt.Printf("Operation cancelled.\n")
+		return nil
+	}
+
+	// Remove orphaned directories
+	removedCount := 0
+	for _, orphaned := range orphanedDirs {
+		if err := os.RemoveAll(orphaned.configDir); err != nil {
+			fmt.Printf("Warning: failed to remove %s: %v\n", orphaned.configDir, err)
+		} else {
+			removedCount++
+		}
+	}
+
+	fmt.Printf("Successfully removed %d orphaned configuration directories.\n", removedCount)
+	return nil
+}
+
+// setupProjectRegistration creates the reactor home directory structure
+// and registers the current project so it appears in accounts list
+func (s *Service) setupProjectRegistration(account string) error {
+	// Generate project hash and paths (same logic as ResolveConfiguration)
+	projectHash := GenerateProjectHash(s.projectRoot)
+	reactorHome, err := GetReactorHomeDir()
+	if err != nil {
+		return err
+	}
+
+	accountConfigDir := filepath.Join(reactorHome, account)
+	projectConfigDir := filepath.Join(accountConfigDir, projectHash)
+
+	// Create the directory structure
+	if err := os.MkdirAll(projectConfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create project config directory: %w", err)
+	}
+
+	// Write project-path.txt file so the project shows up in accounts list
+	projectPathFile := filepath.Join(projectConfigDir, "project-path.txt")
+	absProjectPath, err := filepath.Abs(s.projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute project path: %w", err)
+	}
+
+	if err := os.WriteFile(projectPathFile, []byte(absProjectPath), 0644); err != nil {
+		return fmt.Errorf("failed to write project path file: %w", err)
 	}
 
 	return nil

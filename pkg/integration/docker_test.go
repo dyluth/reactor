@@ -15,6 +15,10 @@ import (
 // TestDockerIntegration tests Docker-dependent functionality
 // This test requires Docker to be running
 func TestDockerIntegration(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	if !isDockerAvailable() {
 		t.Skip("Docker not available, skipping Docker integration tests")
 	}
@@ -69,6 +73,10 @@ func TestDockerIntegration(t *testing.T) {
 
 // TestSessionsListOutput tests the formatting of sessions list output
 func TestSessionsListOutput(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	if !isDockerAvailable() {
 		t.Skip("Docker not available, skipping sessions list output test")
 	}
@@ -100,7 +108,7 @@ func TestSessionsListOutput(t *testing.T) {
 		// When no containers, should show helpful message
 		expectedStrings := []string{
 			"No reactor containers found",
-			"Run 'reactor run' to create",
+			"Run 'reactor up' to create",
 		}
 
 		for _, expected := range expectedStrings {
@@ -137,6 +145,10 @@ func TestSessionsListOutput(t *testing.T) {
 
 // TestContainerNameSanitization tests the container name sanitization logic
 func TestContainerNameSanitization(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// We can test this without Docker by examining config output
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -219,6 +231,10 @@ func TestContainerNameSanitization(t *testing.T) {
 
 // TestErrorHandling tests error scenarios and messages
 func TestErrorHandling(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 
@@ -270,6 +286,10 @@ func TestErrorHandling(t *testing.T) {
 
 // TestIsolationPrefix tests that isolation prefixes work correctly
 func TestIsolationPrefix(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
 

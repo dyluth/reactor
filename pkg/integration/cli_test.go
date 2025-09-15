@@ -23,6 +23,10 @@ var (
 
 // TestReactorCLIBasicCommands tests basic CLI functionality
 func TestReactorCLIBasicCommands(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with robust cleanup
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -102,6 +106,10 @@ func TestReactorCLIBasicCommands(t *testing.T) {
 
 // TestReactorConfigOperations tests config initialization and management
 func TestReactorConfigOperations(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment
 	_, tempDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -223,23 +231,22 @@ func TestReactorConfigOperations(t *testing.T) {
 	})
 
 	t.Run("config get and set", func(t *testing.T) {
-		// Test setting a value (now directs to devcontainer.json)
-		cmd := exec.Command(reactorBinary, "config", "set", "provider", "gemini")
+		// Test setting a value (project should already be initialized from previous test)
+		cmd := exec.Command(reactorBinary, "config", "set", "account", "cli-test-account")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
 
 		output, err := cmd.CombinedOutput()
-		// config set now directs users to edit devcontainer.json manually
 		if err != nil {
 			t.Fatalf("config set failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "To set 'provider', edit your devcontainer.json file") {
-			t.Errorf("Expected devcontainer.json edit instruction but got: %s", string(output))
+		if !strings.Contains(string(output), "Successfully updated account") {
+			t.Errorf("Expected success message but got: %s", string(output))
 		}
 
-		// Test getting the value (now directs to devcontainer.json)
-		cmd = exec.Command(reactorBinary, "config", "get", "provider")
+		// Test getting the value
+		cmd = exec.Command(reactorBinary, "config", "get", "account")
 		cmd.Dir = tempDir
 		cmd.Env = append(os.Environ(), env...)
 
@@ -248,21 +255,57 @@ func TestReactorConfigOperations(t *testing.T) {
 			t.Fatalf("config get failed: %v, output: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "For configuration key 'provider', check your devcontainer.json file") {
-			t.Errorf("Expected devcontainer.json check instruction but got: %s", string(output))
+		if !strings.Contains(string(output), "cli-test-account") {
+			t.Errorf("Expected to get new account name but got: %s", string(output))
+		}
+	})
+
+	t.Run("unsupported config keys", func(t *testing.T) {
+		// Test that unsupported keys return appropriate error messages (project should already be initialized)
+		unsupportedKeys := []string{"provider", "image"}
+
+		for _, key := range unsupportedKeys {
+			// Test config set with unsupported key
+			cmd := exec.Command(reactorBinary, "config", "set", key, "some-value")
+			cmd.Dir = tempDir
+			cmd.Env = append(os.Environ(), env...)
+
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Errorf("Expected config set %s to fail but it succeeded. Output: %s", key, string(output))
+			}
+
+			outputStr := string(output)
+			if !strings.Contains(outputStr, "unsupported configuration key") || !strings.Contains(outputStr, key) {
+				t.Errorf("Expected error message about unsupported key '%s' but got: %s", key, outputStr)
+			}
+
+			// Test config get with unsupported key
+			cmd = exec.Command(reactorBinary, "config", "get", key)
+			cmd.Dir = tempDir
+			cmd.Env = append(os.Environ(), env...)
+
+			output, err = cmd.CombinedOutput()
+			if err == nil {
+				t.Errorf("Expected config get %s to fail but it succeeded. Output: %s", key, string(output))
+			}
+
+			outputStr = string(output)
+			if !strings.Contains(outputStr, "unsupported configuration key") || !strings.Contains(outputStr, key) {
+				t.Errorf("Expected error message about unsupported key '%s' but got: %s", key, outputStr)
+			}
 		}
 	})
 }
 
 // TestContainerNaming tests the enhanced container naming scheme
 func TestContainerNaming(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	_, _, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
-
-	// Clean up any leftover containers and temp directories from previous runs
-	if err := testutil.CleanupAllTestContainers(); err != nil {
-		t.Logf("Warning: failed initial cleanup of test containers: %v", err)
-	}
 
 	// Clean up any leftover temp directories from previous test runs
 	tempDirPattern := filepath.Join(os.TempDir(), "*-project*")

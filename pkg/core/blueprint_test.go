@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"testing"
 
@@ -304,9 +305,11 @@ func TestNewContainerBlueprint(t *testing.T) {
 
 			// Verify basic properties
 			assert.Equal(t, "test-image:latest", blueprint.Image)
-			assert.Equal(t, []string{"/bin/sh"}, blueprint.Command)
+			assert.Nil(t, blueprint.Command)
 			assert.Equal(t, "/workspace", blueprint.WorkDir)
-			assert.Equal(t, "claude", blueprint.User)
+			// Should use system username by default
+			expectedUser := getSystemUsername()
+			assert.Equal(t, expectedUser, blueprint.User)
 			assert.Equal(t, "bridge", blueprint.NetworkMode)
 
 			// Verify port mappings
@@ -393,9 +396,9 @@ func TestContainerBlueprintValidation_EdgeCases(t *testing.T) {
 	// Should handle empty values gracefully
 	assert.NotEmpty(t, blueprint.Name) // sanitizer should provide fallback
 	assert.Equal(t, "", blueprint.Image)
-	assert.Equal(t, []string{"/bin/sh"}, blueprint.Command)
+	assert.Nil(t, blueprint.Command)
 	assert.Equal(t, "/workspace", blueprint.WorkDir)
-	assert.Equal(t, "claude", blueprint.User)
+	assert.Equal(t, getSystemUsername(), blueprint.User)
 
 	// Should convert to valid Docker spec
 	spec := blueprint.ToContainerSpec()
@@ -422,9 +425,9 @@ func TestNewContainerBlueprint_RemoteUser(t *testing.T) {
 			expectedUser: "root",
 		},
 		{
-			name:         "empty remoteUser falls back to claude",
+			name:         "empty remoteUser falls back to system user",
 			remoteUser:   "",
-			expectedUser: "claude",
+			expectedUser: getSystemUsername(),
 		},
 	}
 
@@ -521,9 +524,9 @@ func TestNewContainerBlueprint_DefaultCommand(t *testing.T) {
 			expectedCommand: []string{"/bin/sh", "-c", "echo 'hello world'"},
 		},
 		{
-			name:            "empty defaultCommand falls back to bash",
+			name:            "empty defaultCommand uses nil to let ENTRYPOINT handle default",
 			defaultCommand:  "",
-			expectedCommand: []string{"/bin/sh"},
+			expectedCommand: nil,
 		},
 	}
 
@@ -691,14 +694,14 @@ func TestNewContainerBlueprint_EdgeCaseCoverage(t *testing.T) {
 			if tt.resolved.DefaultCommand != "" {
 				assert.Equal(t, []string{"/bin/sh", "-c", tt.resolved.DefaultCommand}, blueprint.Command, "should use custom default command")
 			} else {
-				assert.Equal(t, []string{"/bin/sh"}, blueprint.Command, "should fallback to sh")
+				assert.Nil(t, blueprint.Command, "should use nil command to let image ENTRYPOINT handle default behavior")
 			}
 
 			// Verify user logic (should always have a fallback)
 			if tt.resolved.RemoteUser != "" {
 				assert.Equal(t, tt.resolved.RemoteUser, blueprint.User, "should use remote user when specified")
 			} else {
-				assert.Equal(t, "claude", blueprint.User, "should fallback to claude user")
+				assert.Equal(t, getSystemUsername(), blueprint.User, "should fallback to system user")
 			}
 
 			// Verify mount logic based on mode
@@ -813,4 +816,12 @@ func TestNewContainerBlueprint_NestedMountPointIteration(t *testing.T) {
 	for _, expectedMount := range expectedMounts {
 		assert.Contains(t, blueprint.Mounts, expectedMount, "Should contain mount: %s", expectedMount)
 	}
+}
+
+// getSystemUsername returns the current system username for testing
+func getSystemUsername() string {
+	if currentUser, err := user.Current(); err == nil {
+		return currentUser.Username
+	}
+	return "user" // fallback for test environments where user lookup fails
 }

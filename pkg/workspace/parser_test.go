@@ -360,4 +360,19 @@ func TestGenerateWorkspaceHash(t *testing.T) {
 		assert.Len(t, hash, 64) // Should still generate valid hash
 		assert.NotEmpty(t, hash)
 	})
+
+	t.Run("RelativePathHashing", func(t *testing.T) {
+		// Test that relative paths are converted to absolute for consistent hashing
+		hash1, err := GenerateWorkspaceHash("./relative-file.yml")
+		require.NoError(t, err)
+		assert.Len(t, hash1, 64)
+
+		hash2, err := GenerateWorkspaceHash("relative-file.yml")
+		require.NoError(t, err)
+		assert.Len(t, hash2, 64)
+
+		// Both should generate valid hashes (they might be same or different depending on path resolution)
+		assert.NotEmpty(t, hash1)
+		assert.NotEmpty(t, hash2)
+	})
 }

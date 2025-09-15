@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,20 @@ func TestGenerateProjectHash(t *testing.T) {
 			t.Errorf("Hash contains invalid character: %c", char)
 		}
 	}
+
+	// Test edge cases for more coverage
+	shortPath := "/a"
+	shortHash := GenerateProjectHash(shortPath)
+	if len(shortHash) != 8 {
+		t.Errorf("Expected short path hash length 8, got %d", len(shortHash))
+	}
+
+	// Test with special characters
+	specialPath := "/path/with-special_chars.and.dots/project"
+	specialHash := GenerateProjectHash(specialPath)
+	if len(specialHash) != 8 {
+		t.Errorf("Expected special path hash length 8, got %d", len(specialHash))
+	}
 }
 
 func TestResolveImage(t *testing.T) {
@@ -162,5 +177,73 @@ func TestBuiltinProviders(t *testing.T) {
 
 	if gemini.Name != "gemini" {
 		t.Errorf("Expected gemini name to be 'gemini', got '%s'", gemini.Name)
+	}
+}
+
+func TestBuiltinImages(t *testing.T) {
+	// Test that built-in images are properly configured
+	expectedImages := []string{"base", "python", "go", "node"}
+
+	for _, imageName := range expectedImages {
+		image, exists := BuiltinImages[imageName]
+		if !exists {
+			t.Errorf("Built-in image '%s' should exist", imageName)
+			continue
+		}
+
+		if image == "" {
+			t.Errorf("Built-in image '%s' should have non-empty value", imageName)
+		}
+
+		// Images should be valid registry paths
+		if !strings.Contains(image, "ghcr.io/dyluth/reactor") {
+			t.Logf("Built-in image '%s' = '%s' (may be valid custom registry)", imageName, image)
+		}
+	}
+
+	// Test that all built-in images have unique values
+	seen := make(map[string]string)
+	for name, image := range BuiltinImages {
+		if prev, exists := seen[image]; exists {
+			t.Errorf("Duplicate image value '%s' found for '%s' and '%s'", image, name, prev)
+		}
+		seen[image] = name
+	}
+}
+
+func TestGetSystemUsername(t *testing.T) {
+	username, err := GetSystemUsername()
+
+	if err != nil {
+		t.Errorf("GetSystemUsername failed: %v", err)
+	}
+
+	if username == "" {
+		t.Error("Expected non-empty username")
+	}
+
+	// Username should be a reasonable string (not contain newlines, etc.)
+	if strings.Contains(username, "\n") || strings.Contains(username, "\r") {
+		t.Errorf("Username contains unexpected characters: %q", username)
+	}
+
+	// Test consistency - calling again should return same result
+	username2, err2 := GetSystemUsername()
+	if err2 != nil {
+		t.Errorf("Second call to GetSystemUsername failed: %v", err2)
+	}
+
+	if username != username2 {
+		t.Errorf("GetSystemUsername should return consistent results: %q vs %q", username, username2)
+	}
+
+	// Username should be non-whitespace
+	if strings.TrimSpace(username) != username {
+		t.Errorf("Username should not have leading/trailing whitespace: %q", username)
+	}
+
+	// Username should be reasonable length (not empty, not excessively long)
+	if len(username) > 255 {
+		t.Errorf("Username seems unreasonably long: %d characters", len(username))
 	}
 }

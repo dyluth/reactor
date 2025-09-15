@@ -13,6 +13,10 @@ import (
 
 // TestBasicReactorFunctionality tests core reactor functionality
 func TestBasicReactorFunctionality(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with HOME directory
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -100,7 +104,7 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			}
 		}
 
-		// Test config set/get (now instructs users to edit devcontainer.json directly)
+		// Test config set (now directly modifies devcontainer.json)
 		cmd = exec.Command(reactorBinary, "config", "set", "account", "test-account")
 		cmd.Dir = testDir
 		cmd.Env = setupBasicEnv(isolationPrefix)
@@ -109,8 +113,17 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			t.Fatalf("Config set failed: %v\nOutput: %s", err, string(output))
 		}
 
-		if !strings.Contains(string(output), "customizations.reactor.account") {
-			t.Errorf("Config set should show how to edit devcontainer.json but got: %s", string(output))
+		if !strings.Contains(string(output), "Successfully updated account") {
+			t.Errorf("Config set should show a success message but got: %s", string(output))
+		}
+
+		// Verify the file was actually changed
+		content, err := os.ReadFile(filepath.Join(testDir, ".devcontainer/devcontainer.json"))
+		if err != nil {
+			t.Fatalf("Failed to read devcontainer.json after set: %v", err)
+		}
+		if !strings.Contains(string(content), `"account": "test-account"`) {
+			t.Errorf("devcontainer.json was not updated correctly. Content: %s", string(content))
 		}
 
 		cmd = exec.Command(reactorBinary, "config", "get", "account")
@@ -121,9 +134,9 @@ func TestBasicReactorFunctionality(t *testing.T) {
 			t.Fatalf("Config get failed: %v\nOutput: %s", err, string(output))
 		}
 
-		// Should return the current account (system username by default)
-		if len(strings.TrimSpace(string(output))) == 0 {
-			t.Errorf("Config get should return current account but got empty output: %s", string(output))
+		// Should return the account we just set
+		if !strings.Contains(string(output), "test-account") {
+			t.Errorf("Config get should return the account we set ('test-account') but got: %s", string(output))
 		}
 	})
 
@@ -158,6 +171,10 @@ func TestBasicReactorFunctionality(t *testing.T) {
 
 // TestDevContainerFunctionality tests devcontainer.json integration features
 func TestDevContainerFunctionality(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with HOME directory
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
@@ -275,6 +292,10 @@ func TestDevContainerFunctionality(t *testing.T) {
 
 // TestPostCreateCommandFunctionality tests postCreateCommand execution
 func TestPostCreateCommandFunctionality(t *testing.T) {
+	if err := testutil.CleanupAllTestContainers(); err != nil {
+		t.Fatalf("Initial cleanup failed: %v", err)
+	}
+
 	// Set up isolated test environment with HOME directory
 	_, testDir, cleanup := testutil.SetupIsolatedTest(t)
 	defer cleanup()
