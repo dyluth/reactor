@@ -58,7 +58,7 @@ func (p *TTYManagerPool) Put(manager *TTYManager) {
 	default:
 		// Pool is full, just close the manager
 		log.Printf("[TTY DEBUG] TTYManagerPool.Put: pool full, closing TTY manager")
-		manager.Close()
+		_ = manager.Close() // Ignore error in cleanup context
 	}
 }
 
@@ -70,15 +70,15 @@ func (p *TTYManagerPool) Close() {
 	log.Printf("[TTY DEBUG] TTYManagerPool.Close: closing TTY manager pool")
 	close(p.pool)
 	for manager := range p.pool {
-		manager.Close()
+		_ = manager.Close() // Ignore error in cleanup context
 	}
 }
 
 // ResizeRateLimiter prevents excessive resize events
 type ResizeRateLimiter struct {
-	lastResize time.Time
+	lastResize  time.Time
 	minInterval time.Duration
-	mu         sync.RWMutex
+	mu          sync.RWMutex
 }
 
 // NewResizeRateLimiter creates a new rate limiter for resize events
@@ -243,16 +243,16 @@ func safeRestoreTerminalMode(state *term.State) {
 
 // TTYManager manages terminal state and signal handling for interactive sessions
 type TTYManager struct {
-	originalState   *term.State
-	currentSize     *TerminalSize
-	resizeChan      chan os.Signal
-	signalChan      chan os.Signal
-	resizeHandler   ResizeHandler
-	signalHandler   SignalHandler
-	resizeLimiter   *ResizeRateLimiter
-	cancelFuncs     []func() // Track all goroutines for proper cleanup
-	mu              sync.RWMutex
-	closed          bool
+	originalState *term.State
+	currentSize   *TerminalSize
+	resizeChan    chan os.Signal
+	signalChan    chan os.Signal
+	resizeHandler ResizeHandler
+	signalHandler SignalHandler
+	resizeLimiter *ResizeRateLimiter
+	cancelFuncs   []func() // Track all goroutines for proper cleanup
+	mu            sync.RWMutex
+	closed        bool
 }
 
 // NewTTYManager creates a new TTY manager for an interactive session

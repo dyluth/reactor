@@ -408,7 +408,7 @@ func TestTTYManagerPool(t *testing.T) {
 		}
 
 		// Clean up
-		manager2.Close()
+		_ = manager2.Close() // Ignore error in test cleanup
 	})
 
 	t.Run("TTYManagerPool_OverflowHandling", func(t *testing.T) {

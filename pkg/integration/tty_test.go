@@ -377,4 +377,3 @@ func TestTTYEnhancements_TerminalSizeDetection(t *testing.T) {
 
 	t.Logf("✅ Terminal size detection test configuration validated successfully")
 }
-
