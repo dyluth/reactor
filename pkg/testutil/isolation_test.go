@@ -84,6 +84,24 @@ func TestCanonicalPath(t *testing.T) {
 	if !filepath.IsAbs(canonicalNonExistent) {
 		t.Errorf("Canonical path for non-existent should be absolute, got %s", canonicalNonExistent)
 	}
+
+	// Test with relative path
+	relPath := "relative/path"
+	canonicalRel := CanonicalPath(t, relPath)
+	if !filepath.IsAbs(canonicalRel) {
+		t.Errorf("Canonical path for relative path should be absolute, got %s", canonicalRel)
+	}
+
+	// Test with nested directory
+	nestedDir := filepath.Join(testDir, "level1", "level2")
+	err := os.MkdirAll(nestedDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create nested directory: %v", err)
+	}
+	canonicalNested := CanonicalPath(t, nestedDir)
+	if !strings.Contains(canonicalNested, "level2") {
+		t.Errorf("Canonical path should contain nested directory names")
+	}
 }
 
 func TestAssertPathsEqual(t *testing.T) {
@@ -188,6 +206,40 @@ func TestRobustRemoveAll_NonExistent(t *testing.T) {
 	err := RobustRemoveAll(t, nonExistentPath)
 	if err != nil {
 		t.Errorf("RobustRemoveAll should succeed on non-existent paths: %v", err)
+	}
+}
+
+func TestRobustRemoveAll_MoreEdgeCases(t *testing.T) {
+	// Test with empty string path
+	err := RobustRemoveAll(t, "")
+	if err != nil {
+		t.Logf("RobustRemoveAll with empty path: %v", err)
+	}
+
+	// Test with root temp directory (should work)
+	tempDir := os.TempDir()
+	testDir := filepath.Join(tempDir, "robust-remove-edge-test")
+	err = os.MkdirAll(testDir, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	// Add a file to make it non-empty
+	testFile := filepath.Join(testDir, "test.txt")
+	err = os.WriteFile(testFile, []byte("test"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// RobustRemoveAll should remove it successfully
+	err = RobustRemoveAll(t, testDir)
+	if err != nil {
+		t.Errorf("RobustRemoveAll failed on regular directory: %v", err)
+	}
+
+	// Verify it's gone
+	if _, err := os.Stat(testDir); !os.IsNotExist(err) {
+		t.Error("Directory should have been removed")
 	}
 }
 
