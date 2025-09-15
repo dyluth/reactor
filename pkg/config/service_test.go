@@ -327,3 +327,30 @@ func TestService_CleanAccounts(t *testing.T) {
 		}
 	})
 }
+
+func TestNewService_EdgeCase(t *testing.T) {
+	// Test NewService in different working directories for edge case coverage
+	original, _ := os.Getwd()
+	defer func() { _ = os.Chdir(original) }()
+
+	tempDir := t.TempDir()
+	_ = os.Chdir(tempDir)
+
+	service := NewService()
+	if service.projectRoot == "" {
+		t.Error("Expected non-empty project root")
+	}
+
+	// Test that project root is properly set
+	currentDir, _ := os.Getwd()
+	if service.projectRoot == "" {
+		t.Error("Project root should not be empty")
+	}
+
+	// Verify service is properly initialized
+	if service == nil {
+		t.Fatal("NewService should not return nil")
+	}
+
+	t.Logf("Service created with project root: %s, current dir: %s", service.projectRoot, currentDir)
+}

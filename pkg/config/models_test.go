@@ -95,6 +95,20 @@ func TestGenerateProjectHash(t *testing.T) {
 			t.Errorf("Hash contains invalid character: %c", char)
 		}
 	}
+
+	// Test edge cases for more coverage
+	shortPath := "/a"
+	shortHash := GenerateProjectHash(shortPath)
+	if len(shortHash) != 8 {
+		t.Errorf("Expected short path hash length 8, got %d", len(shortHash))
+	}
+
+	// Test with special characters
+	specialPath := "/path/with-special_chars.and.dots/project"
+	specialHash := GenerateProjectHash(specialPath)
+	if len(specialHash) != 8 {
+		t.Errorf("Expected special path hash length 8, got %d", len(specialHash))
+	}
 }
 
 func TestResolveImage(t *testing.T) {
