@@ -5,8 +5,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -46,8 +48,8 @@ func TestTerminalSize(t *testing.T) {
 			t.Error("Expected error when no terminal available, got nil")
 		}
 
-		if !strings.Contains(err.Error(), "failed to get terminal size") {
-			t.Errorf("Expected 'failed to get terminal size' error, got: %v", err)
+		if !strings.Contains(err.Error(), "stdin is not a terminal") {
+			t.Errorf("Expected 'stdin is not a terminal' error, got: %v", err)
 		}
 	})
 }
@@ -372,6 +374,115 @@ func TestEnhancedResizeHandling(t *testing.T) {
 		err := handler.HandleResize(80, 24)
 		if err != expectedErr {
 			t.Errorf("Expected %v, got: %v", expectedErr, err)
+		}
+	})
+}
+
+func TestTTYManagerPool(t *testing.T) {
+	t.Run("TTYManagerPool_CreateAndReuse", func(t *testing.T) {
+		pool := NewTTYManagerPool(2)
+		defer pool.Close()
+
+		// Get a manager from the pool (should create new one)
+		manager1, err := pool.Get()
+		if err != nil {
+			// In CI environments without terminal, this might fail - that's OK
+			t.Skipf("Skipping TTY manager pool test: %v", err)
+		}
+
+		if manager1 == nil {
+			t.Error("Expected non-nil TTY manager")
+		}
+
+		// Put it back
+		pool.Put(manager1)
+
+		// Get another manager (should reuse the first one if possible)
+		manager2, err := pool.Get()
+		if err != nil {
+			t.Skipf("Skipping TTY manager pool test: %v", err)
+		}
+
+		if manager2 == nil {
+			t.Error("Expected non-nil TTY manager")
+		}
+
+		// Clean up
+		manager2.Close()
+	})
+
+	t.Run("TTYManagerPool_OverflowHandling", func(t *testing.T) {
+		pool := NewTTYManagerPool(1) // Small pool
+		defer pool.Close()
+
+		managers := make([]*TTYManager, 3)
+		for i := 0; i < 3; i++ {
+			manager, err := pool.Get()
+			if err != nil {
+				t.Skipf("Skipping TTY manager pool test: %v", err)
+			}
+			managers[i] = manager
+		}
+
+		// Put them all back - only one should fit in pool, others should be closed
+		for _, manager := range managers {
+			if manager != nil {
+				pool.Put(manager)
+			}
+		}
+	})
+}
+
+func TestResizeRateLimiter(t *testing.T) {
+	t.Run("ResizeRateLimiter_BasicFunctionality", func(t *testing.T) {
+		limiter := NewResizeRateLimiter(100 * time.Millisecond)
+
+		// First call should be allowed
+		if !limiter.ShouldProcess() {
+			t.Error("First resize should be allowed")
+		}
+
+		// Immediate second call should be blocked
+		if limiter.ShouldProcess() {
+			t.Error("Immediate second resize should be blocked")
+		}
+
+		// Wait for rate limit to reset
+		time.Sleep(150 * time.Millisecond)
+
+		// Now should be allowed again
+		if !limiter.ShouldProcess() {
+			t.Error("Resize should be allowed after rate limit period")
+		}
+	})
+
+	t.Run("ResizeRateLimiter_ConcurrentAccess", func(t *testing.T) {
+		limiter := NewResizeRateLimiter(50 * time.Millisecond)
+
+		var allowed, blocked int
+		var wg sync.WaitGroup
+
+		// Start multiple goroutines trying to process resize events
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if limiter.ShouldProcess() {
+					allowed++
+				} else {
+					blocked++
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Only one should be allowed initially
+		if allowed != 1 {
+			t.Errorf("Expected 1 allowed resize, got %d", allowed)
+		}
+		if blocked != 9 {
+			t.Errorf("Expected 9 blocked resizes, got %d", blocked)
 		}
 	})
 }

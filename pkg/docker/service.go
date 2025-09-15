@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -767,38 +768,58 @@ func (s *Service) ExecutePostCreateCommand(ctx context.Context, containerID stri
 
 // ExecuteInteractiveCommand runs a command interactively with full TTY support
 func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID string, command []string, isInteractive bool) error {
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: starting command execution for container %s, interactive=%v", containerID, isInteractive)
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: command: %v", command)
+
 	if len(command) == 0 {
+		log.Printf("[TTY ERROR] ExecuteInteractiveCommand: empty command array")
 		return fmt.Errorf("command array cannot be empty")
 	}
 
 	// Check if container is running
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: inspecting container %s", containerID)
 	containerInfo, err := s.client.ContainerInspect(ctx, containerID)
 	if err != nil {
+		log.Printf("[TTY ERROR] ExecuteInteractiveCommand: failed to inspect container %s: %v", containerID, err)
 		return fmt.Errorf("failed to inspect container %s: %w", containerID, err)
 	}
 
 	if !containerInfo.State.Running {
+		log.Printf("[TTY ERROR] ExecuteInteractiveCommand: container %s is not running (state: %s)", containerID, containerInfo.State.Status)
 		return fmt.Errorf("container %s is not running, cannot execute command", containerID)
 	}
+
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: container %s is running, proceeding with command execution", containerID)
 
 	// Phase 1: Set up TTY management for interactive sessions
 	var ttyManager *TTYManager
 	if isInteractive && isTerminalAvailable() {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: interactive mode with terminal available, setting up TTY manager")
 		ttyManager, err = NewTTYManager()
 		if err != nil {
 			// Fall back to basic mode if TTY setup fails
+			log.Printf("[TTY WARN] ExecuteInteractiveCommand: TTY setup failed, falling back to basic mode: %v", err)
 			fmt.Fprintf(os.Stderr, "Warning: TTY setup failed, falling back to basic mode: %v\n", err)
+		} else {
+			log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: TTY manager created successfully")
 		}
 		if ttyManager != nil {
 			defer func() {
+				log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: cleaning up TTY manager")
 				if closeErr := ttyManager.Close(); closeErr != nil {
+					log.Printf("[TTY ERROR] ExecuteInteractiveCommand: failed to close TTY manager: %v", closeErr)
 					fmt.Fprintf(os.Stderr, "Warning: failed to close TTY manager: %v\n", closeErr)
 				}
 			}()
 		}
+	} else if isInteractive {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: interactive mode requested but no terminal available")
+	} else {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: non-interactive mode, skipping TTY setup")
 	}
 
 	// Phase 2: Enhanced exec configuration with proper environment
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: creating exec configuration")
 	execConfig := container.ExecOptions{
 		AttachStdout: true,
 		AttachStderr: true,
@@ -809,20 +830,32 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 
 	// Add TTY environment variables if TTY manager is available
 	if ttyManager != nil {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: adding TTY environment variables")
 		execConfig.Env = ttyManager.GetEnvironment()
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: added %d environment variables", len(execConfig.Env))
+	} else {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: no TTY manager, using standard environment")
 	}
 
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: creating exec instance for container %s", containerID)
 	execResp, err := s.client.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
+		log.Printf("[TTY ERROR] ExecuteInteractiveCommand: failed to create exec instance: %v", err)
 		return fmt.Errorf("failed to create exec instance: %w", err)
 	}
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: exec instance created with ID %s", execResp.ID)
 
 	// Phase 3: Set up signal handling for interactive sessions
 	if ttyManager != nil {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: setting up signal handling for exec %s", execResp.ID)
+
 		// Handle terminal resize events with enhanced error handling and rate limiting
 		ttyManager.WatchResizeWithErrorHandling(func(width, height int) error {
+			log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: handling terminal resize to %dx%d", width, height)
+
 			// Validate resize dimensions
 			if width <= 0 || height <= 0 {
+				log.Printf("[TTY ERROR] ExecuteInteractiveCommand: invalid terminal dimensions: %dx%d", width, height)
 				return fmt.Errorf("invalid terminal dimensions: %dx%d", width, height)
 			}
 
@@ -835,63 +868,87 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 			if err := s.client.ContainerExecResize(ctx, execResp.ID, resizeOptions); err != nil {
 				// Return error but don't fail the entire operation
 				// Terminal resize is best-effort and shouldn't block execution
+				log.Printf("[TTY ERROR] ExecuteInteractiveCommand: failed to resize exec %s TTY to %dx%d: %v", execResp.ID, width, height, err)
 				return fmt.Errorf("failed to resize container TTY to %dx%d: %w", width, height, err)
 			}
 
+			log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: successfully resized exec %s TTY to %dx%d", execResp.ID, width, height)
 			return nil // Successful resize
 		})
 
 		// Handle interrupt signals with enhanced error handling and logging
 		ttyManager.WatchSignalsWithErrorHandling(func(sig os.Signal) error {
+			log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: received signal %v for exec %s", sig, execResp.ID)
 			switch sig {
 			case syscall.SIGINT:
 				// SIGINT is handled by TTY forwarding automatically via raw mode
 				// Log the signal for debugging purposes
+				log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: SIGINT forwarded via TTY raw mode for exec %s", execResp.ID)
 				return nil
 			case syscall.SIGTERM:
 				// Graceful termination signal received
 				// The TTY manager will handle cleanup, but we log the event
+				log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: SIGTERM received, initiating graceful termination for exec %s", execResp.ID)
 				return nil
 			default:
 				// Unexpected signal - log but don't error
+				log.Printf("[TTY WARN] ExecuteInteractiveCommand: unexpected signal %v received for exec %s", sig, execResp.ID)
 				return fmt.Errorf("received unexpected signal: %v", sig)
 			}
 		})
+	} else {
+		log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: no TTY manager available, skipping signal setup")
 	}
 
 	// Attach to the exec instance for interactive I/O
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: attaching to exec instance %s", execResp.ID)
 	attachResp, err := s.client.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{
 		Tty: true,
 	})
 	if err != nil {
+		log.Printf("[TTY ERROR] ExecuteInteractiveCommand: failed to attach to exec instance %s: %v", execResp.ID, err)
 		return fmt.Errorf("failed to attach to exec instance: %w", err)
 	}
 	defer attachResp.Close()
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: successfully attached to exec instance %s", execResp.ID)
 
 	// Start the exec instance
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: starting exec instance %s", execResp.ID)
 	if err := s.client.ContainerExecStart(ctx, execResp.ID, container.ExecStartOptions{
 		Tty: true,
 	}); err != nil {
+		log.Printf("[TTY ERROR] ExecuteInteractiveCommand: failed to start exec instance %s: %v", execResp.ID, err)
 		return fmt.Errorf("failed to start command execution: %w", err)
 	}
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: exec instance %s started successfully", execResp.ID)
 
 	// Phase 4: Enhanced I/O handling with proper TTY streaming
+	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: starting I/O handling for exec %s", execResp.ID)
 	return s.handleInteractiveIO(ctx, execResp.ID, attachResp, isInteractive)
 }
 
 // handleInteractiveIO manages bidirectional I/O streaming with proper TTY support
 func (s *Service) handleInteractiveIO(ctx context.Context, execID string, attachResp types.HijackedResponse, isInteractive bool) error {
+	log.Printf("[TTY DEBUG] handleInteractiveIO: starting I/O handling for exec %s (interactive=%v)", execID, isInteractive)
+
 	// Channel to signal completion of different operations
 	done := make(chan error, 3)
 
 	// Copy container output to stdout with TTY support
 	go func() {
+		log.Printf("[TTY DEBUG] handleInteractiveIO: starting stdout copy for exec %s", execID)
 		_, err := io.Copy(os.Stdout, attachResp.Reader)
+		if err != nil {
+			log.Printf("[TTY DEBUG] handleInteractiveIO: stdout copy completed with error for exec %s: %v", execID, err)
+		} else {
+			log.Printf("[TTY DEBUG] handleInteractiveIO: stdout copy completed successfully for exec %s", execID)
+		}
 		done <- err
 	}()
 
 	// Copy stdin to container with enhanced error handling
 	go func() {
+		log.Printf("[TTY DEBUG] handleInteractiveIO: starting stdin copy for exec %s", execID)
 		_, err := io.Copy(attachResp.Conn, os.Stdin)
 		// Suppress expected errors for interactive sessions
 		if err != nil && isInteractive {
@@ -899,8 +956,15 @@ func (s *Service) handleInteractiveIO(ctx context.Context, execID string, attach
 			if strings.Contains(errStr, "broken pipe") ||
 				strings.Contains(errStr, "use of closed network connection") {
 				// These are expected when user detaches or session ends
+				log.Printf("[TTY DEBUG] handleInteractiveIO: suppressing expected error for exec %s: %v", execID, err)
 				err = nil
+			} else {
+				log.Printf("[TTY DEBUG] handleInteractiveIO: stdin copy completed with error for exec %s: %v", execID, err)
 			}
+		} else if err != nil {
+			log.Printf("[TTY DEBUG] handleInteractiveIO: stdin copy completed with error for exec %s: %v", execID, err)
+		} else {
+			log.Printf("[TTY DEBUG] handleInteractiveIO: stdin copy completed successfully for exec %s", execID)
 		}
 		done <- err
 	}()
