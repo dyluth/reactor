@@ -924,12 +924,12 @@ func (s *Service) ExecuteInteractiveCommand(ctx context.Context, containerID str
 
 	// Phase 4: Enhanced I/O handling with proper TTY streaming
 	log.Printf("[TTY DEBUG] ExecuteInteractiveCommand: starting I/O handling for exec %s", execResp.ID)
-	return s.handleInteractiveIO(ctx, execResp.ID, attachResp, isInteractive)
+	return s.handleInteractiveIO(ctx, execResp.ID, attachResp, isInteractive, ttyManager)
 }
 
 // handleInteractiveIO manages bidirectional I/O streaming with proper TTY support
-func (s *Service) handleInteractiveIO(ctx context.Context, execID string, attachResp types.HijackedResponse, isInteractive bool) error {
-	log.Printf("[TTY DEBUG] handleInteractiveIO: starting I/O handling for exec %s (interactive=%v)", execID, isInteractive)
+func (s *Service) handleInteractiveIO(ctx context.Context, execID string, attachResp types.HijackedResponse, isInteractive bool, ttyManager *TTYManager) error {
+	log.Printf("[TTY DEBUG] handleInteractiveIO: starting I/O handling for exec %s (interactive=%v, ttyManager=%v)", execID, isInteractive, ttyManager != nil)
 
 	// Channel to signal completion of different operations
 	done := make(chan error, 3)
@@ -946,10 +946,21 @@ func (s *Service) handleInteractiveIO(ctx context.Context, execID string, attach
 		done <- err
 	}()
 
-	// Copy stdin to container with enhanced error handling
+	// Copy stdin to container with TTY-aware handling
 	go func() {
 		log.Printf("[TTY DEBUG] handleInteractiveIO: starting stdin copy for exec %s", execID)
-		_, err := io.Copy(attachResp.Conn, os.Stdin)
+
+		var err error
+		if ttyManager != nil {
+			// TTY mode: raw terminal input should be forwarded directly
+			log.Printf("[TTY DEBUG] handleInteractiveIO: using TTY-aware stdin forwarding for exec %s", execID)
+			_, err = io.Copy(attachResp.Conn, os.Stdin)
+		} else {
+			// Non-TTY mode: standard copy
+			log.Printf("[TTY DEBUG] handleInteractiveIO: using standard stdin forwarding for exec %s", execID)
+			_, err = io.Copy(attachResp.Conn, os.Stdin)
+		}
+
 		// Suppress expected errors for interactive sessions
 		if err != nil && isInteractive {
 			errStr := err.Error()

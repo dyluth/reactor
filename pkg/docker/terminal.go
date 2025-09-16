@@ -134,10 +134,24 @@ func isTerminalAvailable() bool {
 func createTTYEnvironment(terminalSize *TerminalSize) []string {
 	log.Printf("[TTY DEBUG] createTTYEnvironment: creating TTY environment variables")
 
+	// Preserve host terminal settings to maintain user's color scheme
+	hostTerm := os.Getenv("TERM")
+	if hostTerm == "" {
+		hostTerm = "xterm-256color" // Fallback only if no host TERM
+	}
+
 	env := []string{
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-		"FORCE_COLOR=1",
+		fmt.Sprintf("TERM=%s", hostTerm),
+	}
+
+	// Only set COLORTERM if host has it (preserve user's color setup)
+	if hostColorTerm := os.Getenv("COLORTERM"); hostColorTerm != "" {
+		env = append(env, fmt.Sprintf("COLORTERM=%s", hostColorTerm))
+	}
+
+	// Only force color if it's not already set (respect user preferences)
+	if os.Getenv("NO_COLOR") == "" && os.Getenv("FORCE_COLOR") == "" {
+		env = append(env, "FORCE_COLOR=1")
 	}
 
 	if terminalSize != nil {
